@@ -26,7 +26,7 @@
 
 ## 提交 GitHub Issue
 
-打开[新建 Bug 报告](https://github.com/noahhhi/HoRNDIS-Userspace/issues/new?template=bug_report.yml)，或选择“**HoRNDIS → 详细信息 → 报告 Bug…**”；后者会先生成新报告，再打开同一个表单。
+打开[新建 Bug 报告](https://github.com/jlikeme/HoRNDIS-Userspace/issues/new?template=bug_report.yml)，或选择“**HoRNDIS → 详细信息 → 报告 Bug…**”；后者会先生成新报告，再打开同一个表单。
 
 请说明实际现象、预期结果和准确复现步骤。GitHub 表单中的文件上传为必填项，只接受 `.txt`、`.log` 或 `.zip`；请附上刚生成的 `HoRNDIS-Diagnostics-*.txt`。仓库已关闭外部空白 Issue。截图或单独的 `/var/log/horndis.log` 不能代替诊断报告，因为它们不包含 USB 描述符、DHCP 状态、文件权限和服务状态。
 

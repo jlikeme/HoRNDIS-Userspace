@@ -13,7 +13,7 @@ private let privilegedHelperPath = "/Library/PrivilegedHelperTools/io.github.noa
 private let launchDaemonPath = "/Library/LaunchDaemons/io.github.noahhhi.horndis.plist"
 private let launchDaemonLabel = "io.github.noahhhi.horndis"
 private let bugReportURL = URL(
-    string: "https://github.com/noahhhi/HoRNDIS-Userspace/issues/new?template=bug_report.yml"
+    string: "https://github.com/jlikeme/HoRNDIS-Userspace/issues/new?template=bug_report.yml"
 )!
 
 private func localized(_ key: String, fallback: String) -> String {

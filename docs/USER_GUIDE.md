@@ -12,12 +12,12 @@ HoRNDIS runs in user space rather than as a kernel extension, so users do not ne
 ## Install
 
 ```sh
-brew install --cask noahhhi/tap/horndis
+brew install --cask jlikeme/tap/horndis
 ```
 
 Or install the package directly:
 
-1. Download the universal `.pkg` from [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases).
+1. Download the universal `.pkg` from [GitHub Releases](https://github.com/jlikeme/HoRNDIS-Userspace/releases).
 2. Try to open the downloaded `.pkg`.
 3. If macOS blocks it, open **System Settings → Privacy & Security**.
 4. Click **Open Anyway** for the HoRNDIS package.
@@ -209,7 +209,7 @@ Then turn Android USB tethering off and on. Upgrade or reinstall HoRNDIS to obta
 
 ```sh
 brew update
-brew upgrade --cask horndis
+brew upgrade --cask jlikeme/tap/horndis
 ```
 
 The cask generated from `Packaging/horndis.rb.in` uses the bundled `--homebrew`
@@ -236,7 +236,7 @@ Only reinstalling the privileged service requires administrator authorization. N
 
 ```sh
 horndis uninstall
-brew uninstall --cask horndis
+brew uninstall --cask jlikeme/tap/horndis
 ```
 
 ## Testing the phone path

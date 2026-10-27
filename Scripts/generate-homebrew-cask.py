@@ -4,13 +4,14 @@
 from pathlib import Path
 import argparse
 import hashlib
+import json
 import re
 
 
 def ruby_string(value):
     if '\n' in value or '\r' in value:
         raise ValueError('Cask values cannot contain line breaks')
-    return "'" + value.replace('\\', '\\\\').replace("'", "\\'") + "'"
+    return json.dumps(value, ensure_ascii=False).replace('#{', '\\#{').replace('#@', '\\#@').replace('#$', '\\#$')
 
 
 def generate(version, package, url=None):

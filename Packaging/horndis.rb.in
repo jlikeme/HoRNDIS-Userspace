@@ -5,7 +5,7 @@ cask "horndis" do
   url @URL@
   name "HoRNDIS Userspace"
   desc "Android RNDIS USB tethering without a kernel extension"
-  homepage "https://github.com/noahhhi/HoRNDIS-Userspace"
+  homepage "https://github.com/jlikeme/HoRNDIS-Userspace"
 
   depends_on macos: :big_sur
 

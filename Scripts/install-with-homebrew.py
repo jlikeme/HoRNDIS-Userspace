@@ -22,6 +22,7 @@ local = (build / 'horndis-homebrew-local.rb').read_bytes()
 package = Path(plan['package'])
 prepare = sys.argv[1:] == ['--prepare']
 brew = plan.get('brew', shutil.which('brew') or '/opt/homebrew/bin/brew')
+cask_token = plan.get('cask', 'jlikeme/tap/horndis')
 env = dict(os.environ, HOMEBREW_NO_AUTO_UPDATE='1', HOMEBREW_NO_INSTALL_CLEANUP='1')
 record = {'started_at': time.time(), 'prepare_only': prepare, 'package': str(package)}
 migration = None
@@ -100,17 +101,17 @@ signal.signal(signal.SIGINT, interrupted)
 exit_code = 1
 try:
     recipe.write_bytes(local)
-    information = subprocess.run([brew, 'info', '--cask', '--json=v2', 'noahhhi/tap/horndis'],
+    information = subprocess.run([brew, 'info', '--cask', '--json=v2', cask_token],
                                  env=env, capture_output=True, text=True, check=True)
     cask = json.loads(information.stdout)['casks'][0]
     assert cask['url'] == package.as_uri()
     assert cask['sha256'] == plan['package_sha256']
-    assert cask['full_token'] == 'noahhhi/tap/horndis'
+    assert cask['full_token'] == cask_token
     record['cask'] = cask['full_token']
     print('预检查临时使用配套 cask，结束后恢复原定义。' if prepare else
           'Homebrew 将保留网络服务并重装；成功后保留配套 cask，旧定义已有备份。', flush=True)
     if prepare:
-        result = subprocess.run([brew, 'fetch', '--cask', 'noahhhi/tap/horndis'], env=env)
+        result = subprocess.run([brew, 'fetch', '--cask', cask_token], env=env)
     else:
         print('若提示 Password，请在此终端输入 macOS 管理员密码；输入不会显示。', flush=True)
         # `install --force` still skips an already-installed cask with the same
@@ -132,7 +133,7 @@ try:
         migration = maintenance.InstalledCaskMigration(caskroom, compatibility,
                                                      build/'homebrew-maintenance-backups')
         record['legacy_cask_migration'] = migration.prepare()
-        result = subprocess.run([brew, 'reinstall', '--cask', '--require-sha', 'noahhhi/tap/horndis'], env=env)
+        result = subprocess.run([brew, 'reinstall', '--cask', '--require-sha', cask_token], env=env)
     exit_code = result.returncode
     record['brew_exit_code'] = exit_code
     if not prepare and exit_code == 0:

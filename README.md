@@ -7,6 +7,8 @@
 
 HoRNDIS runs the Android USB tethering data path in user space rather than the kernel, so it works on modern macOS without disabling System Integrity Protection (SIP).
 
+This enhanced distribution is maintained at [jlikeme/HoRNDIS-Userspace](https://github.com/jlikeme/HoRNDIS-Userspace), based on [the upstream project](https://github.com/noahhhi/HoRNDIS-Userspace). It includes optional Surge integration, automatic USB tethering startup through authorized ADB, and network-service preservation during replacement.
+
 [User guide](docs/USER_GUIDE.md) · [Report a bug](docs/BUG_REPORTING.md) · [Privilege model](docs/PRIVILEGE_MODEL.md) · [Known limitations](docs/LIMITATIONS.md) · [Menu UI contract](docs/MENU_UI_GUIDELINES.md)
 
 > **Preview:** RNDIS is implemented and tested with a Pixel 4 XL. CDC-ECM and CDC-NCM devices are detected so future transports can be added without replacing the macOS network backend.
@@ -18,12 +20,18 @@ Current reference test: Apple Silicon Mac running macOS 27.0, Pixel 4 XL running
 ### Homebrew
 
 ```sh
-brew install --cask noahhhi/tap/horndis
+brew install --cask jlikeme/tap/horndis
 ```
+
+For later updates, use `brew upgrade --cask jlikeme/tap/horndis`.
+Reinstall with `brew reinstall --cask jlikeme/tap/horndis`; this enhanced version
+preserves the HoRNDIS USB service, its settings and network service order.
+See the [tap documentation](https://github.com/jlikeme/homebrew-tap#horndis-userspace)
+for requirements and uninstall instructions.
 
 ### Package installer
 
-1. Download the universal `.pkg` from [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases).
+1. Download the universal `.pkg` from [GitHub Releases](https://github.com/jlikeme/HoRNDIS-Userspace/releases).
 2. Try to open the downloaded `.pkg`.
 3. If macOS blocks it, open **System Settings → Privacy & Security**.
 4. Click **Open Anyway** for the HoRNDIS package.
@@ -56,9 +64,10 @@ To remove it:
 
 ```sh
 horndis uninstall
-brew uninstall --cask horndis
-brew untap noahhhi/tap
+brew uninstall --cask jlikeme/tap/horndis
 ```
+
+Run `brew untap jlikeme/tap` only if you no longer use other packages from this tap.
 
 Universal manual ZIP archives are also attached to GitHub Releases for advanced use.
 

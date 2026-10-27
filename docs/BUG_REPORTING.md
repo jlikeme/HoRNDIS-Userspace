@@ -26,7 +26,7 @@ Account names, full names, host/device names, USB serial values and location IDs
 
 ## Open the GitHub issue
 
-Open [New bug report](https://github.com/noahhhi/HoRNDIS-Userspace/issues/new?template=bug_report.yml), or choose **HoRNDIS → Details → Report a Bug…** to create a fresh report and open the same form.
+Open [New bug report](https://github.com/jlikeme/HoRNDIS-Userspace/issues/new?template=bug_report.yml), or choose **HoRNDIS → Details → Report a Bug…** to create a fresh report and open the same form.
 
 Describe the observed behavior, expected behavior, and exact reproduction steps. The GitHub form has a required file-upload field restricted to `.txt`, `.log`, or `.zip`; attach the newly generated `HoRNDIS-Diagnostics-*.txt`. Blank external issues are disabled. A screenshot or a raw `/var/log/horndis.log` alone does not replace the diagnostic report because it omits USB descriptors, DHCP state, permissions, and service status.
 

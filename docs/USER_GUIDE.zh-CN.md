@@ -12,12 +12,12 @@ HoRNDIS 运行在用户态，而不是作为内核扩展运行，因此用户无
 ## 安装
 
 ```sh
-brew install --cask noahhhi/tap/horndis
+brew install --cask jlikeme/tap/horndis
 ```
 
 或直接安装 PKG：
 
-1. 从 [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases) 下载通用 `.pkg` 安装包。
+1. 从 [GitHub Releases](https://github.com/jlikeme/HoRNDIS-Userspace/releases) 下载通用 `.pkg` 安装包。
 2. 先尝试打开下载的 `.pkg`。
 3. 如果 macOS 阻止打开，进入“**系统设置 → 隐私与安全性**”。
 4. 找到 HoRNDIS 安装包的提示，点击“**仍要打开**”。
@@ -183,7 +183,7 @@ sudo ipconfig set feth99 DHCP
 
 ```sh
 brew update
-brew upgrade --cask horndis
+brew upgrade --cask jlikeme/tap/horndis
 ```
 
 配合 `Packaging/horndis.rb.in` 生成的新 cask 定义，升级和重装只停止后台并替换程序，
@@ -205,7 +205,7 @@ brew upgrade --cask horndis
 
 ```sh
 horndis uninstall
-brew uninstall --cask horndis
+brew uninstall --cask jlikeme/tap/horndis
 ```
 
 ## 网络测试与 VPN

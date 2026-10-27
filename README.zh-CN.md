@@ -7,6 +7,8 @@
 
 HoRNDIS 的 Android USB 网络共享数据路径运行在用户态而非内核态，因此可在现代 macOS 上运行，无需关闭系统完整性保护（SIP）。
 
+此增强版由 [jlikeme/HoRNDIS-Userspace](https://github.com/jlikeme/HoRNDIS-Userspace) 维护，基于[上游项目](https://github.com/noahhhi/HoRNDIS-Userspace)，增加了可选的 Surge 联动、通过已授权 ADB 自动开启 USB 网络共享，以及重装时保留网络服务等功能。
+
 [用户手册](docs/USER_GUIDE.zh-CN.md) · [反馈 Bug](docs/BUG_REPORTING.zh-CN.md) · [权限模型](docs/PRIVILEGE_MODEL.md) · [已知限制](docs/LIMITATIONS.md) · [菜单栏 UI 规范](docs/MENU_UI_GUIDELINES.md)
 
 > **预览版本：** RNDIS 已在 Pixel 4 XL 上实现并测试。工具也能识别 CDC-ECM 和 CDC-NCM 设备，以便未来在保留 macOS 网络后端的情况下增加新的传输协议。
@@ -18,12 +20,17 @@ HoRNDIS 的 Android USB 网络共享数据路径运行在用户态而非内核�
 ### Homebrew
 
 ```sh
-brew install --cask noahhhi/tap/horndis
+brew install --cask jlikeme/tap/horndis
 ```
+
+后续使用 `brew upgrade --cask jlikeme/tap/horndis` 升级，使用
+`brew reinstall --cask jlikeme/tap/horndis` 重装；本增强版会保留
+HoRNDIS USB 网络服务、网络配置和原有服务顺序。
+要求及卸载方式见 [tap 安装说明](https://github.com/jlikeme/homebrew-tap#horndis-userspace)。
 
 ### PKG 安装包
 
-1. 从 [GitHub Releases](https://github.com/noahhhi/HoRNDIS-Userspace/releases) 下载通用 `.pkg` 安装包。
+1. 从 [GitHub Releases](https://github.com/jlikeme/HoRNDIS-Userspace/releases) 下载通用 `.pkg` 安装包。
 2. 先尝试打开下载的 `.pkg`。
 3. 如果 macOS 阻止打开，进入“**系统设置 → 隐私与安全性**”。
 4. 找到 HoRNDIS 安装包的提示，点击“**仍要打开**”。
@@ -55,9 +62,10 @@ curl https://ifconfig.me
 
 ```sh
 horndis uninstall
-brew uninstall --cask horndis
-brew untap noahhhi/tap
+brew uninstall --cask jlikeme/tap/horndis
 ```
+
+只有不再使用该 tap 的其他软件时，才运行 `brew untap jlikeme/tap`。
 
 GitHub Releases 也提供适合高级用户的通用手动 ZIP 包。
 

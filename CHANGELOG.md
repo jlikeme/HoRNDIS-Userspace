@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.11 - 2026-10-27
+
 - Preserve the owned HoRNDIS USB network service, service identity, custom
   settings and service order during Homebrew upgrades and reinstalls. Stop jobs
   gracefully without disabling integration preferences; full uninstall still
