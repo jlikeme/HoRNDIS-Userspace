@@ -24,7 +24,7 @@
 
 - The phone controls upstream selection and NAT. Android VPNs do not necessarily share their tunnel through native USB tethering.
 - Some rooted or modified Android builds have broken tethering BPF/conntrack offload. If DHCP and ICMP work while TCP stalls, temporarily disabling Android tether offload can distinguish that device problem from the macOS bridge. Restore the property after diagnosis if the device works with its default.
-- The checked USB Tethering menu command resumes or pauses HoRNDIS discovery; it cannot enable Android USB tethering or unlock the phone.
+- The checked USB Tethering command resumes or pauses HoRNDIS discovery. Optional automatic startup can request RNDIS through an already-authorized USB ADB connection; the phone ROM must support `svc usb setFunctions rndis` and actually provide DHCP/tethering. It cannot enable USB debugging, authorize the Mac, or unlock the phone. Missing ADB, multiple devices and startup failure are shown in Details.
 
 ## Menu bar status
 

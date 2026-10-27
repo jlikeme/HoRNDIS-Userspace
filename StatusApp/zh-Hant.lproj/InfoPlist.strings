@@ -1,2 +1,3 @@
 "CFBundleDisplayName" = "HoRNDIS 狀態列";
 "CFBundleName" = "HoRNDIS 狀態列";
+"NSLocalNetworkUsageDescription" = "HoRNDIS 需要存取 USB 共享手機提供的 DNS，以持續更新 Surge 連動狀態。";

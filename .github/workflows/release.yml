@@ -37,6 +37,11 @@ jobs:
 
           Scripts/build-package "${GITHUB_REF_NAME#v}" \
             "dist/HoRNDIS-Userspace-${GITHUB_REF_NAME}-macos-universal.pkg"
+          python3 Scripts/generate-homebrew-cask.py \
+            --version "${GITHUB_REF_NAME#v}" \
+            --package "dist/HoRNDIS-Userspace-${GITHUB_REF_NAME}-macos-universal.pkg" \
+            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/HoRNDIS-Userspace-${GITHUB_REF_NAME}-macos-universal.pkg" \
+            --output dist/horndis.rb
           ! pkgutil --payload-files \
             "dist/HoRNDIS-Userspace-${GITHUB_REF_NAME}-macos-universal.pkg" \
             | grep -Eq '(^|/)\._'
@@ -49,4 +54,4 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.pkg dist/*.zip dist/*.sha256 --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/*.pkg dist/*.zip dist/*.sha256 dist/horndis.rb --generate-notes

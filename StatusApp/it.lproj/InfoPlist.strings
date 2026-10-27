@@ -1,2 +1,3 @@
 "CFBundleDisplayName" = "Stato HoRNDIS";
 "CFBundleName" = "Stato HoRNDIS";
+"NSLocalNetworkUsageDescription" = "HoRNDIS verifica i server DNS del telefono collegato via USB per mantenere aggiornata l’integrazione con Surge.";

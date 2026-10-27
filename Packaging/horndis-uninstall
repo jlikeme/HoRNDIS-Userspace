@@ -2,18 +2,78 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -euo pipefail
 
+keep_network_service=false
+case "${*}" in
+    --keep-network-service) keep_network_service=true ;;
+    --homebrew)
+        # The cask always passes this constant flag. Resolve the actual operation
+        # now, so Homebrew's saved JSON cannot freeze an earlier install's mode.
+        # First-upgrade compatibility uses --keep-network-service explicitly.
+        keep_network_service=true
+        mode_tool="/Applications/HoRNDIS Status.app/Contents/Resources/horndis"
+        if [[ -x "${mode_tool}" ]] && [[ "$("${mode_tool}" maintenance-mode)" == remove ]]; then
+            keep_network_service=false
+        fi
+        ;;
+    ''|--remove-network-service) ;;
+    --help)
+        print 'usage: horndis-uninstall [--homebrew|--keep-network-service|--remove-network-service]'
+        exit 0
+        ;;
+    *)
+        print -u2 'usage: horndis-uninstall [--homebrew|--keep-network-service|--remove-network-service]'
+        exit 64
+        ;;
+esac
+
 if (( EUID != 0 )); then
     print -u2 "The package uninstaller must run as root."
     exit 1
 fi
+
+# bootout removes the launchd job before its process necessarily finishes. Wait
+# for graceful teardown so configd never sees the previous feth member in use
+# while the replacement starts. Only this application's fixed jobs are accepted.
+stop_job() {
+    local target=$1
+    local information process_id
+    if ! information=$(/bin/launchctl print "${target}" 2>/dev/null); then
+        return 0
+    fi
+    process_id=$(print -r -- "${information}" | /usr/bin/awk '$1 == "pid" && $2 == "=" && !found { print $3; found = 1 }')
+    /bin/launchctl bootout "${target}"
+    if [[ "${process_id}" == <-> ]] && (( process_id > 1 )); then
+        for attempt in {1..100}; do
+            if ! /bin/kill -0 "${process_id}" 2>/dev/null; then
+                return 0
+            fi
+            /bin/sleep 0.2
+        done
+        print -u2 "HoRNDIS is still stopping; network configuration has been preserved. Retry the installation."
+        return 1
+    fi
+}
 
 status_tool="/Applications/HoRNDIS Status.app/Contents/MacOS/horndis-status"
 console_user=$(/usr/bin/stat -f '%Su' /dev/console)
 if [[ -x "${status_tool}" && -n "${console_user}" && "${console_user}" != "root" && \
       "${console_user}" != "loginwindow" ]]; then
     console_uid=$(/usr/bin/id -u "${console_user}")
-    /bin/launchctl asuser "${console_uid}" \
-        /usr/bin/sudo -H -u "${console_user}" "${status_tool}" uninstall || true
+    if ${keep_network_service}; then
+        # Stop without clearing the user's Surge, ADB or login preferences.
+        /bin/launchctl asuser "${console_uid}" \
+            /usr/bin/sudo -H -u "${console_user}" "${status_tool}" stop
+        stop_job "gui/${console_uid}/io.github.noahhhi.horndis.surge"
+    else
+        /bin/launchctl asuser "${console_uid}" \
+            /usr/bin/sudo -H -u "${console_user}" "${status_tool}" uninstall
+    fi
+fi
+
+if ${keep_network_service}; then
+    stop_job system/io.github.noahhhi.horndis
+    print 'HoRNDIS stopped for replacement; the USB network service and its order were preserved.'
+    exit 0
 fi
 
 network_tool=/usr/local/bin/horndis

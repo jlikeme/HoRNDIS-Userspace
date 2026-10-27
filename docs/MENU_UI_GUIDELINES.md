@@ -101,6 +101,23 @@ refresh cycle.
 
 ## Live status and persistence contract
 
+- **Auto-start USB Tethering** is a native checked root action, titled exactly
+  **自动开启USB网络共享** in Simplified Chinese. Its activation conditions belong in
+  the tooltip. Details contains ADB state, full-error/path tooltips, executable
+  selection and explicit retry; these rows update in place. Manual pause records
+  the current service PID before sending the disconnect request so background
+  startup cannot race the service's next status publication.
+
+- **Surge Integration** is a native side submenu with a checked command, file
+  selection actions, retry, and status/network/error rows. Update these items in
+  place. Long paths and complete errors belong in tooltips, not oversized menu
+  rows. File panels may activate the app and restore the previous foreground app.
+- The optional Surge agent runs independently of menu tracking and menu app
+  lifetime. Toggling integration never invokes administrator authorization.
+- **Automatically Switch Intelligence** uses the same native checked-item style.
+  Its tooltip explains the SIM-Route / 新加坡节点 transition, and an information
+  row displays the last verified group selection without modifying menu geometry.
+
 - While the root menu is open, refresh service state, duration, and traffic
   totals once per second. The timer must run in both default and event-tracking
   run-loop modes.

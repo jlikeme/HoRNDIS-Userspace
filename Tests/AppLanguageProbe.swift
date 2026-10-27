@@ -13,6 +13,8 @@ private enum AppLanguageProbe {
             "en", "zh-Hans", "zh-Hant", "ja", "ko", "fr", "de", "es", "pt-BR", "it", "ru",
         ]
         let referenceKeys = localizationKeys(in: bundle, localization: "en")
+        precondition((bundle.object(forInfoDictionaryKey: "NSLocalNetworkUsageDescription") as? String)?.isEmpty == false,
+                     "Missing local-network usage description")
 
         print("localizations=\(bundle.localizations)")
         precondition(Set(bundle.localizations) == Set(expectedLocalizations),
@@ -31,7 +33,7 @@ private enum AppLanguageProbe {
             precondition(keys == referenceKeys,
                          "Localizable.strings keys differ for \(localization)")
         }
-        precondition(referenceKeys.count == 38,
+        precondition(referenceKeys.count == 79,
                      "Unexpected localized string count: \(referenceKeys.count)")
         let sourceKeys = localizationKeys(inSource: CommandLine.arguments[2])
         precondition(sourceKeys == referenceKeys,

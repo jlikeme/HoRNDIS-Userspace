@@ -15,7 +15,8 @@ network_tool="${build_directory}/horndis"
 status_app="${build_directory}/HoRNDISStatus.app"
 icon_file="${status_app}/Contents/Resources/HoRNDISStatus.icns"
 
-if [[ ! -x "${network_tool}" || ! -x "${status_app}/Contents/MacOS/horndis-status" || ! -s "${icon_file}" ]]; then
+if [[ ! -x "${network_tool}" || ! -x "${status_app}/Contents/MacOS/horndis-status" || \
+      ! -x "${status_app}/Contents/Helpers/horndis-surge-agent" || ! -s "${icon_file}" ]]; then
     print -u2 "Build the universal HoRNDIS binaries and app before creating a package."
     exit 1
 fi

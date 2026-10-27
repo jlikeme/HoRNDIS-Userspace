@@ -1,2 +1,3 @@
 "CFBundleDisplayName" = "HoRNDIS Status";
 "CFBundleName" = "HoRNDIS Status";
+"NSLocalNetworkUsageDescription" = "HoRNDIS checks the DNS servers provided by your USB-tethered phone so it can keep Surge integration in sync.";

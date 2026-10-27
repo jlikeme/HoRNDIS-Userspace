@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- Preserve the owned HoRNDIS USB network service, service identity, custom
+  settings and service order during Homebrew upgrades and reinstalls. Stop jobs
+  gracefully without disabling integration preferences; full uninstall still
+  removes the owned network service.
+
+- Keep the integration agent alive when denied local-network DNS sends return
+  EPIPE/SIGPIPE; associate the LaunchAgent with the app, explain local-network
+  access, report policy denial explicitly, and persist bounded transition logs.
+
+- Fix missed automatic USB starts after quick cable reconnects by tracking ADB
+  transports and retaining pending attempts while previous network status settles;
+  record actual startup commands for diagnosis.
+
+- Add optional ADB automatic USB tethering startup with a concise native menu
+  command, authorized USB device discovery, pause protection, bounded attempts,
+  observed network readiness, ADB path selection and explicit retry.
+
+- Add optional Surge SIM DNS integration with DHCP-based interface/DNS discovery,
+  connection-aware module control, DNS cache flushing, persistent cleanup retries,
+  and native menu controls. Update DNS mappings and the SIM interface only when
+  their values differ, preserving unchanged files and existing rules.
+- Add optional Intelligence policy-group switching between SIM-Route and
+  新加坡节点, with verified no-op selection, persistent fallback recovery and
+  backwards-compatible preferences.
+
 ## 0.3.8 - 2026-08-30
 
 - Create a missing `/Library/PrivilegedHelperTools` directory with the standard

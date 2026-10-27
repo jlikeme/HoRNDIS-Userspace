@@ -1,2 +1,3 @@
 "CFBundleDisplayName" = "HoRNDIS ステータス";
 "CFBundleName" = "HoRNDIS ステータス";
+"NSLocalNetworkUsageDescription" = "USB テザリング端末の DNS を確認し、Surge の連携状態を更新するためにローカルネットワークにアクセスします。";

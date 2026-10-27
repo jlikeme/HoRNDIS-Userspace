@@ -5,6 +5,7 @@
 #include "USBTransport.hpp"
 #include "VirtualEthernet.hpp"
 #include "ServiceManager.hpp"
+#include "HomebrewOperation.hpp"
 #include "RuntimeStatus.hpp"
 #include "ControlServer.hpp"
 #include "DeviceAliases.hpp"
@@ -1065,6 +1066,13 @@ int main(int argc, char* argv[]) {
         }
         if (command == "status") {
             return printStatus();
+        }
+        if (command == "maintenance-mode") {
+            // Read-only package hook. Unknown callers preserve configuration;
+            // explicit `horndis uninstall` still performs complete cleanup.
+            std::cout << (horndis::currentHomebrewOperation() == horndis::HomebrewOperation::remove
+                          ? "remove" : "keep") << '\n';
+            return 0;
         }
         if (command == "diagnostics") {
             std::cout << horndis::buildDiagnosticReport(HORNDIS_VERSION);

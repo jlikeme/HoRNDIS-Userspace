@@ -61,6 +61,8 @@ brew untap noahhhi/tap
 
 GitHub Releases 也提供适合高级用户的通用手动 ZIP 包。
 
+可选的 **Surge 联动** 会根据手机实际接口和 DHCP DNS 自动管理 `SIM DNS` 模块，并在断开时停用、清理 Surge DNS 缓存。只在目标值变化时更新配置文件，默认关闭。配置方式及只读检查命令见[中文使用手册](docs/USER_GUIDE.zh-CN.md#surge-联动可选)。
+
 ## 项目缘由
 
 原版 [HoRNDIS](https://github.com/jwise/HoRNDIS) 使用内核扩展。当前 macOS 必须降低安全策略或关闭 SIP 才能载入旧式、未公证的内核代码。HoRNDIS Userspace 则把 RNDIS 数据路径放在内核之外的用户态运行，因此可在现代 macOS 上使用，无需降低启动安全性或关闭 SIP。

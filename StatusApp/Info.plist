@@ -21,7 +21,9 @@
   <key>CFBundleShortVersionString</key>
   <string>0.3.10</string>
   <key>CFBundleVersion</key>
-  <string>21</string>
+  <string>23</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>HoRNDIS checks the DNS servers provided by your USB-tethered phone so it can keep Surge integration in sync.</string>
   <key>LSMinimumSystemVersion</key>
   <string>11.0</string>
   <key>LSUIElement</key>

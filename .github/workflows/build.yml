@@ -30,6 +30,8 @@ jobs:
           lipo -archs build/horndis | grep -q x86_64
           lipo -archs build/horndis-status | grep -q arm64
           lipo -archs build/horndis-status | grep -q x86_64
+          lipo -archs build/HoRNDISStatus.app/Contents/Helpers/horndis-surge-agent | grep -q arm64
+          lipo -archs build/HoRNDISStatus.app/Contents/Helpers/horndis-surge-agent | grep -q x86_64
           codesign --verify --strict --verbose=2 build/horndis
           codesign --verify --deep --strict --verbose=2 build/HoRNDISStatus.app
       - name: Verify app icon and installer package
@@ -41,6 +43,7 @@ jobs:
           ! pkgutil --payload-files build/HoRNDIS-Userspace-test.pkg | grep -q "usr/local/bin/horndis-status"
           pkgutil --payload-files build/HoRNDIS-Userspace-test.pkg | grep -q "usr/local/share/man/man1/horndis.1"
           pkgutil --payload-files build/HoRNDIS-Userspace-test.pkg | grep -q "Applications/HoRNDIS Status.app/Contents/Resources/HoRNDISStatus.icns"
+          pkgutil --payload-files build/HoRNDIS-Userspace-test.pkg | grep -q "Applications/HoRNDIS Status.app/Contents/Helpers/horndis-surge-agent"
       - name: Verify staged installation layout
         run: |
           stage="${RUNNER_TEMP}/horndis-stage"
@@ -48,4 +51,5 @@ jobs:
           test -x "$stage/usr/local/bin/horndis"
           test ! -e "$stage/usr/local/bin/horndis-status"
           test -x "$stage/Applications/HoRNDIS Status.app/Contents/MacOS/horndis-status"
+          test -x "$stage/Applications/HoRNDIS Status.app/Contents/Helpers/horndis-surge-agent"
           test -f "$stage/usr/local/share/man/man1/horndis.1"

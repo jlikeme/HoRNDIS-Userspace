@@ -28,6 +28,12 @@ console-user data agent
 
 console-user Swift menu bar
   └─ read status and request pause/resume
+
+optional console-user Surge LaunchAgent
+  ├─ read runtime status and the phone service's DHCP options
+  ├─ probe DHCP DNS through the detected interface
+  ├─ reconcile user-selected local Surge files and module state
+  └─ optional independent ADB queue for authorized USB tethering startup
 ```
 
 The child permanently drops supplementary groups, group ID, and user ID before `exec`. It cannot reopen BPF devices, reconfigure interfaces, modify the installed helper, or regain root. After each successful RNDIS initialization, it sends one fixed `refresh DHCP` request and waits for a one-byte success/failure response before reporting the session as connected. The request carries no interface name, command arguments, packet content, or other device-controlled data. The root supervisor validates the fixed request, raises both prevalidated feth interfaces, restarts the macOS DHCP client, and then blocks on the channel again. It never receives or parses USB-controlled bytes.
@@ -53,6 +59,31 @@ The Homebrew command-line path's password is handled by `sudo`, while the packag
 
 ## Remaining risk
 
+The optional Surge integration runs in a separately signed helper inside the app
+bundle, never as root and never inside the USB forwarding loop. It uses public
+SystemConfiguration DHCP APIs and the installed Surge CLI. No shell interpolation,
+HTTP API credentials or additional privileged requests are involved. The agent
+survives menu app exit, persists incomplete cleanup and uses bounded subprocess
+timeouts. Its configuration and recovery files are user-private; managed Surge
+files retain their permissions. Unchanged configuration is never rewritten.
+
+Optional automatic USB startup uses the same ordinary-user helper, with its own
+queue and status file. It invokes the detected/selected ADB executable with fixed
+arguments and an explicitly selected authorized USB serial, never shell text.
+Remote ADB server redirection is excluded. ADB debugging, host authorization and
+root access are not enabled automatically. Pause intent is scoped to the current
+data-agent PID and rechecked immediately before the USB mode command. A mode
+change acknowledgement is followed by observed RNDIS and interface-bound DNS
+readiness, not treated as network success by itself.
+
+The ordinary-user integration agent requires macOS local-network authorization
+for phone DNS probes. Its LaunchAgent declares `AssociatedBundleIdentifiers`, and
+the app supplies a localized usage description. No global local-network exemptions
+or root DNS probes are used. SIGPIPE is ignored before Foundation/network work so
+an EPIPE returns through the error path; Network.framework identifies actual local
+policy denial. Known file paths carry explicit file/directory roles. Private bounded
+logs preserve failures and transitions instead of silently leaving stale status.
+
 The owned **HoRNDIS USB** Network Service uses a registered bridge with a
 feth member registered in both runtime and system bridge preferences. The member
 is removed from both on pause/close and restored on connection, so System Settings
@@ -63,6 +94,14 @@ options record ownership and the service ID; existing members prevent reuse or
 removal. The supervisor never attaches physical network interfaces. A second
 fixed, argument-free request clears DHCP and lowers the owned feth pair after
 disconnect/pause; channel closure also suspends the network after an agent crash.
+
+The package cleanup script accepts a replacement mode that only stops its fixed
+launchd jobs and waits for graceful exit. It never deletes the persistent network
+service in this mode. The cask passes a constant `--homebrew` argument; a read-only
+helper classifies the nearest Homebrew ancestor using `proc_pidpath`, bounded
+`KERN_PROCARGS2` decoding and exact operation arguments. Unknown contexts preserve
+configuration. No commands are constructed from process arguments. Explicit full
+uninstall retains the existing ownership-checked network-service removal.
 
 The supervisor is still a root process and the feth/BPF backend depends on macOS behavior that Apple does not promise as a stable public ABI. Its input surface is deliberately small and fixed, but it is not equivalent to a formally sandboxed or Apple-entitled DriverKit component.
 

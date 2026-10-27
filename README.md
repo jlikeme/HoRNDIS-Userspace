@@ -98,6 +98,11 @@ unprivileged data agent
 
 Administrator authorization is required only to install, upgrade, or remove the root-owned LaunchDaemon. It can be requested with `horndis install` in a terminal or from **Authorize and Install…** in the menu bar. At each boot the privileged setup lasts only long enough to create the network capability; reboot, login, sleep/wake, USB reconnect, and normal menu use require no further authorization. See the [privilege model](docs/PRIVILEGE_MODEL.md).
 
+Optional **Surge Integration** manages the `SIM DNS` module using the phone's
+actual interface and DHCP DNS, disables it on disconnect, and flushes Surge's
+DNS cache after changes. Configuration files are written only when target values
+differ. The feature is off by default; see the [setup and read-only probe](docs/USER_GUIDE.md#optional-surge-integration).
+
 ## Commands
 
 ```text

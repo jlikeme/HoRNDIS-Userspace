@@ -1,0 +1,35 @@
+cask "horndis" do
+  version @VERSION@
+  sha256 @SHA256@
+
+  url @URL@
+  name "HoRNDIS Userspace"
+  desc "Android RNDIS USB tethering without a kernel extension"
+  homepage "https://github.com/noahhhi/HoRNDIS-Userspace"
+
+  depends_on macos: :big_sur
+
+  pkg @PACKAGE@
+
+  # Resolve the operation when the bundled script actually runs. A constant
+  # argument is safe to retain in Homebrew's installed JSON metadata.
+  uninstall script:  {
+              executable: "/Applications/HoRNDIS Status.app/Contents/Resources/horndis-uninstall",
+              args:       ["--homebrew"],
+              sudo:       true,
+            },
+            pkgutil: "io.github.noahhhi.horndis.pkg"
+
+  caveats <<~EOS
+    HoRNDIS installs its menu bar app in:
+      /Applications/HoRNDIS Status.app
+
+    Upgrades and reinstalls preserve the HoRNDIS USB network service, its
+    identifier, network settings and service order. A full uninstall removes it.
+
+    It also installs the `horndis` command and `man horndis`. The package
+    requests administrator authorization to activate its fixed network service.
+    If the menu bar app is quit, reopen it from Applications or run:
+      horndis start
+  EOS
+end

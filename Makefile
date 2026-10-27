@@ -14,11 +14,12 @@ LDFLAGS := -mmacosx-version-min=11.0 $(ARCH_FLAGS) -framework Foundation -framew
 	-framework SystemConfiguration
 SWIFTC := xcrun swiftc
 CODESIGN := codesign
+SIGNING_IDENTITY ?= -
 
 SOURCES := Sources/main.mm Sources/RNDISProtocol.cpp Sources/USBTransport.mm \
 	Sources/VirtualEthernet.cpp Sources/ServiceManager.cpp Sources/RuntimeStatus.cpp \
 	Sources/ControlServer.cpp Sources/Diagnostics.mm Sources/SupervisorChannel.cpp \
-	Sources/InterfaceSelection.cpp Sources/NetworkService.cpp
+	Sources/InterfaceSelection.cpp Sources/NetworkService.cpp Sources/HomebrewOperation.cpp
 OBJECTS := $(SOURCES:%=$(BUILD_DIR)/%.o)
 TARGET := $(BUILD_DIR)/horndis
 STATUS_TARGET := $(BUILD_DIR)/horndis-status
@@ -35,6 +36,13 @@ STATUS_ICON_GENERATOR := $(BUILD_DIR)/generate-horndis-icon
 STATUS_ICONSET := $(BUILD_DIR)/HoRNDISStatus.iconset
 STATUS_ICON := $(BUILD_DIR)/HoRNDISStatus.icns
 STATUS_ARCH_TARGETS = $(addprefix $(BUILD_DIR)/horndis-status-,$(STATUS_ARCHS))
+SURGE_SOURCES := StatusApp/SurgeIntegration.swift StatusApp/SurgeNetwork.swift StatusApp/SurgeAgentSupport.swift StatusApp/SurgePolicyLink.swift StatusApp/ADBAutoStart.swift StatusApp/AgentRuntime.swift StatusApp/LocalNetworkAccess.swift
+SURGE_BRIDGING := StatusApp/SurgeBridging.h
+SURGE_ARCH_TARGETS = $(addprefix $(BUILD_DIR)/horndis-surge-agent-,$(STATUS_ARCHS))
+SURGE_AGENT := $(STATUS_APP)/Contents/Helpers/horndis-surge-agent
+SURGE_TEST := $(BUILD_DIR)/surge-integration-tests
+ADB_TEST := $(BUILD_DIR)/adb-auto-start-tests
+AGENT_RUNTIME_TEST := $(BUILD_DIR)/agent-runtime-tests
 TEST_TARGET := $(BUILD_DIR)/rndis-protocol-tests
 RUNTIME_STATUS_TEST := $(BUILD_DIR)/runtime-status-tests
 SUPERVISOR_CHANNEL_TEST := $(BUILD_DIR)/supervisor-channel-tests
@@ -50,14 +58,14 @@ APP_LANGUAGE_PROBE := $(BUILD_DIR)/app-language-probe
 MENU_UI_CONTRACT_TEST := $(BUILD_DIR)/menu-ui-contract-tests
 MANPAGE := Documentation/horndis.1
 
-.PHONY: all clean install test test-ui
+.PHONY: all clean install test test-ui test-surge test-adb test-agent-runtime test-network-service
 
 all: $(TARGET) $(STATUS_TARGET)
 
 $(TARGET): $(OBJECTS)
 	@mkdir -p $(@D)
 	$(CXX) $(OBJECTS) $(LDFLAGS) -o $@
-	$(CODESIGN) --force --sign - "$@"
+	$(CODESIGN) --force --sign "$(SIGNING_IDENTITY)" "$@"
 
 $(BUILD_DIR)/%.o: %
 	@mkdir -p $(@D)
@@ -67,10 +75,22 @@ $(BUILD_DIR)/%.o: %
 # callers too (notably VirtualEthernet's root/agent object layout).
 $(OBJECTS): $(wildcard Sources/*.hpp)
 
-$(BUILD_DIR)/horndis-status-%: StatusApp/HoRNDISStatus.swift
+$(BUILD_DIR)/horndis-status-%: StatusApp/HoRNDISStatus.swift $(SURGE_SOURCES) $(SURGE_BRIDGING)
 	@mkdir -p "$(@D)"
 	$(SWIFTC) -parse-as-library -O -whole-module-optimization -target $*-apple-macosx11.0 \
-		-framework AppKit -framework Foundation $< -o $@
+		-framework AppKit -framework Foundation -framework SystemConfiguration \
+		-import-objc-header $(SURGE_BRIDGING) StatusApp/HoRNDISStatus.swift $(SURGE_SOURCES) -o $@
+
+$(BUILD_DIR)/horndis-surge-agent-%: $(SURGE_SOURCES) StatusApp/SurgeAgentMain.swift $(SURGE_BRIDGING)
+	@mkdir -p "$(@D)"
+	$(SWIFTC) -parse-as-library -O -whole-module-optimization -target $*-apple-macosx11.0 \
+		-framework AppKit -framework Foundation -framework SystemConfiguration \
+		-import-objc-header $(SURGE_BRIDGING) $(SURGE_SOURCES) StatusApp/SurgeAgentMain.swift -o $@
+
+$(SURGE_AGENT): $(SURGE_ARCH_TARGETS)
+	@mkdir -p "$(@D)"
+	xcrun lipo -create $^ -output "$@"
+	$(CODESIGN) --force --sign "$(SIGNING_IDENTITY)" "$@"
 
 $(STATUS_ICON_GENERATOR): StatusApp/GenerateAppIcon.swift
 	@mkdir -p $(@D)
@@ -97,12 +117,12 @@ $(STATUS_APP)/Contents/Resources/%.lproj/Localizable.strings: StatusApp/%.lproj/
 	@mkdir -p "$(@D)"
 	install -m 0644 "$<" "$@"
 
-$(STATUS_APP_BINARY): $(STATUS_ARCH_TARGETS) $(STATUS_ICON) $(STATUS_APP_NETWORK_TOOL) $(STATUS_APP_UNINSTALLER) $(STATUS_APP_LOCALIZATIONS) StatusApp/Info.plist
+$(STATUS_APP_BINARY): $(STATUS_ARCH_TARGETS) $(SURGE_AGENT) $(STATUS_ICON) $(STATUS_APP_NETWORK_TOOL) $(STATUS_APP_UNINSTALLER) $(STATUS_APP_LOCALIZATIONS) StatusApp/Info.plist
 	@mkdir -p "$(STATUS_APP)/Contents/MacOS" "$(STATUS_APP)/Contents/Resources"
 	install -m 0644 StatusApp/Info.plist "$(STATUS_APP)/Contents/Info.plist"
 	install -m 0644 "$(STATUS_ICON)" "$(STATUS_APP_ICON)"
 	xcrun lipo -create $(STATUS_ARCH_TARGETS) -output "$@"
-	$(CODESIGN) --force --deep --sign - "$(STATUS_APP)"
+	$(CODESIGN) --force --deep --sign "$(SIGNING_IDENTITY)" "$(STATUS_APP)"
 
 $(STATUS_TARGET): $(STATUS_APP_BINARY)
 	ln -sfn "HoRNDISStatus.app/Contents/MacOS/horndis-status" "$@"
@@ -178,6 +198,8 @@ test: $(TEST_TARGET) $(RUNTIME_STATUS_TEST) $(SUPERVISOR_CHANNEL_TEST) $(DHCP_RE
 	$(STATUS_APP_BINARY) --version
 	test -x "$(STATUS_APP_NETWORK_TOOL)"
 	test -x "$(STATUS_APP_UNINSTALLER)"
+	test -x "$(SURGE_AGENT)"
+	$(SURGE_AGENT) --help
 	cmp -s "$(TARGET)" "$(STATUS_APP_NETWORK_TOOL)"
 	$(CODESIGN) --verify --strict --verbose=2 "$(TARGET)"
 	$(CODESIGN) --verify --deep --strict --verbose=2 "$(STATUS_APP)"
@@ -187,6 +209,53 @@ $(BUILD_DIR)/network-service-tests: Tests/NetworkServiceTests.cpp Sources/Networ
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
 
 test: test-network-service
+
+$(BUILD_DIR)/homebrew-operation-tests: Tests/HomebrewOperationTests.cpp Sources/HomebrewOperation.cpp Sources/HomebrewOperation.hpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) Tests/HomebrewOperationTests.cpp Sources/HomebrewOperation.cpp -o $@
+
+.PHONY: test-homebrew
+test-homebrew: $(BUILD_DIR)/homebrew-operation-tests $(TARGET)
+	$(BUILD_DIR)/homebrew-operation-tests
+	/usr/bin/python3 Tests/HomebrewMaintenanceTests.py
+	/usr/bin/python3 Tests/HomebrewAncestryTests.py "$(TARGET)"
+	/bin/zsh -n Packaging/horndis-uninstall
+	/bin/zsh Packaging/horndis-uninstall --help
+
+test: test-homebrew
+
+$(SURGE_TEST): Tests/SurgeIntegrationTests.swift $(SURGE_SOURCES) $(SURGE_BRIDGING)
+	@mkdir -p "$(@D)"
+	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx11.0 \
+		-framework Foundation -framework AppKit -framework SystemConfiguration \
+		-import-objc-header $(SURGE_BRIDGING) Tests/SurgeIntegrationTests.swift $(SURGE_SOURCES) -o $@
+
+test: test-surge
+
+test-surge: $(SURGE_TEST)
+	$(SURGE_TEST)
+
+$(ADB_TEST): Tests/ADBAutoStartTests.swift $(SURGE_SOURCES) $(SURGE_BRIDGING)
+	@mkdir -p "$(@D)"
+	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx11.0 \
+		-framework Foundation -framework AppKit -framework SystemConfiguration \
+		-import-objc-header $(SURGE_BRIDGING) Tests/ADBAutoStartTests.swift $(SURGE_SOURCES) -o $@
+
+test: test-adb
+
+test-adb: $(ADB_TEST)
+	$(ADB_TEST)
+
+$(AGENT_RUNTIME_TEST): Tests/AgentRuntimeTests.swift $(SURGE_SOURCES) $(SURGE_BRIDGING)
+	@mkdir -p "$(@D)"
+	$(SWIFTC) -parse-as-library -target $(shell uname -m)-apple-macosx11.0 \
+		-framework Foundation -framework AppKit -framework SystemConfiguration \
+		-import-objc-header $(SURGE_BRIDGING) Tests/AgentRuntimeTests.swift $(SURGE_SOURCES) -o $@
+
+test: test-agent-runtime
+
+test-agent-runtime: $(AGENT_RUNTIME_TEST)
+	$(AGENT_RUNTIME_TEST)
 
 test-network-service: $(BUILD_DIR)/network-service-tests
 	$(BUILD_DIR)/network-service-tests

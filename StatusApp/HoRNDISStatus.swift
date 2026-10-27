@@ -502,7 +502,9 @@ private enum NativeMenuTag: Int {
     case authorization
     case authorize
     case connection
+    case autoStartUSB
     case launchAtLogin
+    case surge
     case details
     case detailIP = 200
     case detailInterface
@@ -510,6 +512,20 @@ private enum NativeMenuTag: Int {
     case detailPID
     case detailMessage
     case detailError
+    case detailADBState
+    case detailADBError
+    case detailADBPath
+    case retryADB
+    case surgeEnabled = 300
+    case surgePolicyEnabled
+    case surgePolicySelection
+    case surgeStatus
+    case surgeInterface
+    case surgeDNS
+    case surgeGateway
+    case surgeModulePath
+    case surgeProfilePath
+    case surgeError
 }
 
 @MainActor
@@ -526,6 +542,8 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
     private var displayedStatusState: DisplayState?
     private var displayedStatusMessage: String?
     private var didFinishLaunching = false
+    private var localNetworkProbeInProgress = false
+    private var localNetworkProbeRequested = false
 
     override init() {
         super.init()
@@ -539,6 +557,16 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         NSApp.setActivationPolicy(.accessory)
         refresh()
         configureNativeMenu()
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            do { try SurgeAgentManager.restoreIfNeeded() }
+            catch {
+                let message = error.localizedDescription
+                DispatchQueue.main.async {
+                    self?.interfaceError = message
+                    self?.updateNativeVisibleContent()
+                }
+            }
+        }
         let refreshTimer = Timer(timeInterval: 1,
                                  target: self,
                                  selector: #selector(timerTick),
@@ -570,6 +598,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             try? ControlClient.send("observe\n")
         }
         authorizationState = ServiceAuthorizationManager.state
+        requestLocalNetworkAccessIfNeeded()
         if let pending = pendingConnectionState {
             let reachedRequestedState = pending
                 ? snapshot.state != .paused && snapshot.state != .stopped
@@ -593,6 +622,27 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             ?? NSImage(systemSymbolName: "circle", accessibilityDescription: nil))
         image?.isTemplate = true
         return image
+    }
+
+    private func requestLocalNetworkAccessIfNeeded() {
+        guard !localNetworkProbeRequested && !localNetworkProbeInProgress,
+              snapshot.state == .connected, snapshot.ipAddress != nil,
+              let settings = try? SurgeStorage.standard.settings(), settings.enabled || settings.autoStartUSB else { return }
+        localNetworkProbeInProgress = true
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            var attempted = false
+            do {
+                if let network = try SurgeNetworkObserver().snapshot(), !network.dnsServers.isEmpty {
+                    attempted = true
+                    _ = SurgeDNSProbe.check(network)
+                }
+            } catch { }
+            let didAttempt = attempted
+            DispatchQueue.main.async {
+                self?.localNetworkProbeInProgress = false
+                self?.localNetworkProbeRequested = didAttempt
+            }
+        }
     }
 
     private func setNativeImage(_ symbol: String, on item: NSMenuItem) {
@@ -665,11 +715,48 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             title: localized("menu.usbTethering", fallback: "USB Tethering"),
             action: #selector(toggleConnection(_:))
         ))
+        let automaticUSB = nativeStateItem(tag: .autoStartUSB,
+            title: localized("adb.autoStart", fallback: "Auto-start USB Tethering"),
+            action: #selector(toggleADBAutoStart(_:)))
+        automaticUSB.toolTip = localized("adb.hint",
+            fallback: "Use authorized USB ADB devices to start tethering on connection. Pausing USB Tethering prevents automatic attempts.")
+        menu.addItem(automaticUSB)
         menu.addItem(nativeStateItem(
             tag: .launchAtLogin,
             title: localized("menu.launchAtLogin", fallback: "Launch at Login"),
             action: #selector(toggleLaunchAtLogin(_:))
         ))
+
+        let surge = NSMenuItem(title: localized("surge.menu", fallback: "Surge Integration"), action: nil, keyEquivalent: "")
+        surge.tag = NativeMenuTag.surge.rawValue
+        let surgeMenu = NSMenu(title: surge.title)
+        surgeMenu.delegate = self
+        surgeMenu.autoenablesItems = false
+        surgeMenu.addItem(nativeStateItem(tag: .surgeEnabled,
+            title: localized("surge.enabled", fallback: "Enable Integration"), action: #selector(toggleSurge(_:))))
+        let policySwitch = nativeStateItem(tag: .surgePolicyEnabled,
+            title: localized("surge.autoIntelligence", fallback: "Automatically Switch Intelligence"),
+            action: #selector(toggleSurgePolicy(_:)))
+        policySwitch.toolTip = localized("surge.intelligenceHint",
+            fallback: "Phone ready: SIM-Route. Disconnected or disabled: 新加坡节点.")
+        surgeMenu.addItem(policySwitch)
+        for tag in [NativeMenuTag.surgeStatus, .surgePolicySelection, .surgeInterface, .surgeDNS, .surgeGateway, .surgeError] {
+            surgeMenu.addItem(nativeInfoItem(tag: tag))
+        }
+        surgeMenu.addItem(.separator())
+        surgeMenu.addItem(nativeInfoItem(tag: .surgeModulePath))
+        surgeMenu.addItem(nativeActionItem(localized("surge.chooseModule", fallback: "Choose SIM DNS Module…"),
+                                          action: #selector(chooseSurgeModule)))
+        surgeMenu.addItem(nativeInfoItem(tag: .surgeProfilePath))
+        surgeMenu.addItem(nativeActionItem(localized("surge.chooseProfile", fallback: "Choose Active Profile…"),
+                                          action: #selector(chooseSurgeProfile)))
+        surgeMenu.addItem(nativeActionItem(localized("surge.automaticProfile", fallback: "Detect Active Profile Automatically"),
+                                          action: #selector(automaticSurgeProfile)))
+        surgeMenu.addItem(.separator())
+        surgeMenu.addItem(nativeActionItem(localized("surge.retry", fallback: "Retry Now"), action: #selector(retrySurge)))
+        surgeMenu.addItem(nativeActionItem(localized("network.openSettings", fallback: "Open Local Network Settings…"), action: #selector(openLocalNetworkSettings)))
+        surge.submenu = surgeMenu
+        menu.addItem(surge)
 
         let details = NSMenuItem(title: localized("menu.details", fallback: "Details"),
                                  action: nil,
@@ -693,6 +780,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
     }
 
     private func configureDetailsMenu(_ menu: NSMenu) {
+        menu.autoenablesItems = false
         menu.removeAllItems()
         menu.addItem(nativeInfoItem(tag: .detailIP))
         menu.addItem(nativeInfoItem(tag: .detailInterface))
@@ -700,6 +788,13 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         menu.addItem(nativeInfoItem(tag: .detailPID))
         menu.addItem(nativeInfoItem(tag: .detailMessage))
         menu.addItem(nativeInfoItem(tag: .detailError))
+        menu.addItem(nativeInfoItem(tag: .detailADBState))
+        menu.addItem(nativeInfoItem(tag: .detailADBError))
+        menu.addItem(nativeInfoItem(tag: .detailADBPath))
+        menu.addItem(nativeActionItem(localized("adb.choose", fallback: "Choose ADB…"), action: #selector(chooseADB)))
+        let retryADB = nativeActionItem(localized("adb.retry", fallback: "Retry USB Start"), action: #selector(retryADBStart))
+        retryADB.tag = NativeMenuTag.retryADB.rawValue
+        menu.addItem(retryADB)
         menu.addItem(.separator())
         menu.addItem(nativeActionItem(
             localized("menu.saveDiagnosticReport", fallback: "Save Diagnostic Report…"),
@@ -867,6 +962,246 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             launchAtLogin.isEnabled = true
         }
         updateNativeDetailsContent()
+        updateNativeSurgeContent()
+        updateNativeADBContent()
+    }
+
+    private func updateNativeADBContent() {
+        guard let root = statusItem.menu,
+              let details = root.item(withTag: NativeMenuTag.details.rawValue)?.submenu else { return }
+        do {
+            let storage = SurgeStorage.standard
+            let settings = try storage.settings()
+            let report = try storage.read(ADBAutoStatus.self, from: storage.adbStatusURL,
+                                         default: ADBAutoStatus(state: "waitingAgent", updatedAt: 0))
+            root.item(withTag: NativeMenuTag.autoStartUSB.rawValue)?.state = settings.autoStartUSB ? .on : .off
+            let state = !settings.autoStartUSB ? "off" :
+                (Date().timeIntervalSince1970 - report.updatedAt > 15 || report.state == "off" ? "waitingAgent" : report.state)
+            let title: String
+            switch state {
+            case "off": title = localized("adb.state.off", fallback: "Automatic USB Start Off")
+            case "paused": title = localized("adb.state.paused", fallback: "USB Tethering Paused")
+            case "waitingService": title = localized("adb.state.waitingService", fallback: "Waiting for HoRNDIS Service")
+            case "waitingDevice": title = localized("adb.state.waitingDevice", fallback: "Waiting for USB Phone")
+            case "multipleDevices": title = localized("adb.state.multipleDevices", fallback: "Connect One USB ADB Device")
+            case "unauthorized": title = localized("adb.state.unauthorized", fallback: "Allow USB Debugging on the Phone")
+            case "offline": title = localized("adb.state.offline", fallback: "Waiting for ADB Connection")
+            case "starting": title = localized("adb.state.starting", fallback: "Starting USB Tethering")
+            case "waitingNetwork": title = localized("adb.state.waitingNetwork", fallback: "USB Function Ready — Waiting for DHCP/DNS")
+            case "shared": title = localized("adb.state.shared", fallback: "USB Tethering Ready")
+            case "handled": title = localized("adb.state.handled", fallback: "This Connection Was Already Handled")
+            case "failed": title = localized("adb.state.failed", fallback: "Automatic USB Start Failed")
+            case "localNetworkDenied": title = localized("network.permissionDenied", fallback: "Allow Local Network Access")
+            default: title = localized("adb.state.waitingAgent", fallback: "Waiting for Background Agent")
+            }
+            updateInfoItem(in: details, tag: .detailADBState, title: "ADB: \(title)", symbol: "cable.connector")
+            updateInfoItem(in: details, tag: .detailADBError,
+                title: settings.autoStartUSB && !report.detail.isEmpty ? String(report.detail.prefix(100)) : nil,
+                symbol: "exclamationmark.triangle")
+            details.item(withTag: NativeMenuTag.detailADBError.rawValue)?.toolTip = report.detail
+            let executable = try? ADBClient.executable(configuredPath: settings.adbPath)
+            let pathTitle = settings.adbPath.isEmpty
+                ? localized("surge.automatic", fallback: "Automatic") : URL(fileURLWithPath: settings.adbPath).lastPathComponent
+            updateInfoItem(in: details, tag: .detailADBPath, title: "ADB: \(pathTitle)", symbol: "doc")
+            details.item(withTag: NativeMenuTag.detailADBPath.rawValue)?.toolTip = executable?.path ?? settings.adbPath
+            details.item(withTag: NativeMenuTag.retryADB.rawValue)?.isEnabled = settings.autoStartUSB && snapshot.state != .paused
+        } catch {
+            updateInfoItem(in: details, tag: .detailADBError, title: error.localizedDescription, symbol: "exclamationmark.triangle")
+        }
+    }
+
+    private func updateNativeSurgeContent() {
+        guard let menu = statusItem.menu?.item(withTag: NativeMenuTag.surge.rawValue)?.submenu else { return }
+        do {
+            let storage = SurgeStorage.standard
+            let settings = try storage.settings()
+            let journal = try storage.journal()
+            let policy = try storage.policyJournal()
+            let report = try storage.read(SurgeLinkStatus.self, from: storage.statusURL,
+                                          default: SurgeLinkStatus(state: "starting", updatedAt: 0))
+            menu.item(withTag: NativeMenuTag.surgeEnabled.rawValue)?.state = settings.enabled ? .on : .off
+            menu.item(withTag: NativeMenuTag.surgePolicyEnabled.rawValue)?.state = settings.switchIntelligence ? .on : .off
+            let pending = journal.ownsModule || journal.needsFlush || journal.needsReload ||
+                (settings.hasBeenEnabled && !settings.cleanupRevision.isEmpty && journal.cleanedRevision != settings.cleanupRevision)
+            let state: String
+            if !settings.enabled { state = pending ? "pendingDisable" : (policy.pending ? "pendingPolicy" : "off") }
+            else if Date().timeIntervalSince1970 - report.updatedAt > 15 || report.state == "off" { state = "starting" }
+            else { state = report.state }
+            let title: String
+            switch state {
+            case "off": title = localized("surge.state.off", fallback: "Integration Off")
+            case "waitingUSB": title = localized("surge.state.waitingUSB", fallback: "Waiting for USB Tethering")
+            case "waitingDNS": title = localized("surge.state.waitingDNS", fallback: "Waiting for Phone DNS")
+            case "waitingSurge": title = localized("surge.state.waitingSurge", fallback: "Waiting for Surge — Retrying")
+            case "active": title = localized("surge.state.active", fallback: "SIM DNS Enabled")
+            case "pendingDisable": title = localized("surge.state.pendingDisable", fallback: "SIM DNS Disable Pending")
+            case "pendingPolicy": title = localized("surge.state.pendingPolicy", fallback: "Intelligence Fallback Pending")
+            case "localNetworkDenied": title = localized("network.permissionDenied", fallback: "Allow Local Network Access")
+            case "error": title = localized("surge.state.error", fallback: "Integration Failed — Retrying")
+            default: title = localized("surge.state.starting", fallback: "Waiting for Integration Agent")
+            }
+            updateInfoItem(in: menu, tag: .surgeStatus, title: title, symbol: state == "active" ? "checkmark.circle" : "info.circle")
+            updateInfoItem(in: menu, tag: .surgePolicySelection,
+                title: report.policySelection.map { "Intelligence: \($0)" }, symbol: "arrow.triangle.branch")
+            updateInfoItem(in: menu, tag: .surgeInterface,
+                title: report.network.map { "\(localized("summary.interface", fallback: "Interface")): \($0.interface)" }, symbol: "network")
+            updateInfoItem(in: menu, tag: .surgeDNS,
+                title: report.network.map { "DNS: \($0.dnsServers.isEmpty ? "—" : $0.dnsServers.joined(separator: ", "))" }, symbol: "globe")
+            updateInfoItem(in: menu, tag: .surgeGateway,
+                title: report.network.map { "\(localized("surge.gateway", fallback: "Gateway")): \($0.gateway.isEmpty ? "—" : $0.gateway)" }, symbol: "network")
+            let moduleName = settings.modulePath.isEmpty
+                ? localized("surge.notSelected", fallback: "Not Selected") : URL(fileURLWithPath: settings.modulePath).lastPathComponent
+            let profileName = settings.profilePath.isEmpty
+                ? localized("surge.automatic", fallback: "Automatic") : URL(fileURLWithPath: settings.profilePath).lastPathComponent
+            updateInfoItem(in: menu, tag: .surgeModulePath,
+                title: "\(localized("surge.module", fallback: "Module")): \(moduleName)", symbol: "doc")
+            updateInfoItem(in: menu, tag: .surgeProfilePath,
+                title: "\(localized("surge.profile", fallback: "Profile")): \(profileName)", symbol: "doc")
+            menu.item(withTag: NativeMenuTag.surgeModulePath.rawValue)?.toolTip = settings.modulePath
+            menu.item(withTag: NativeMenuTag.surgeProfilePath.rawValue)?.toolTip = settings.profilePath
+            updateInfoItem(in: menu, tag: .surgeError,
+                title: state == "off" || report.detail.isEmpty ? nil : String(report.detail.prefix(100)), symbol: "exclamationmark.triangle")
+            menu.item(withTag: NativeMenuTag.surgeError.rawValue)?.toolTip = report.detail
+        } catch {
+            updateInfoItem(in: menu, tag: .surgeError, title: error.localizedDescription, symbol: "exclamationmark.triangle")
+        }
+    }
+
+    private func saveSurgeSettings(_ value: SurgeSettings) {
+        var settings = value
+        do {
+            let previous = try SurgeStorage.standard.settings()
+            settings.changed(requestCleanup: previous.enabled && !settings.enabled)
+            try SurgeStorage.standard.save(settings, to: SurgeStorage.standard.settingsURL)
+            interfaceError = nil
+            updateNativeSurgeContent()
+            updateNativeADBContent()
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                do { try SurgeAgentManager.restoreIfNeeded() }
+                catch {
+                    let message = error.localizedDescription
+                    DispatchQueue.main.async {
+                        self?.interfaceError = message
+                        self?.updateNativeVisibleContent()
+                    }
+                }
+            }
+        } catch {
+            interfaceError = error.localizedDescription
+            updateNativeVisibleContent()
+        }
+    }
+
+    @objc private func toggleSurge(_ sender: NSMenuItem) {
+        do {
+            var settings = try SurgeStorage.standard.settings()
+            settings.enabled = sender.state != .on
+            if settings.enabled && settings.modulePath.isEmpty {
+                settings.modulePath = SurgeAgentManager.defaultModulePath
+                if settings.modulePath.isEmpty { selectSurgeFile(module: true, enableAfterSelection: true); return }
+            }
+            saveSurgeSettings(settings)
+        } catch { interfaceError = error.localizedDescription; updateNativeVisibleContent() }
+    }
+
+    @objc private func openLocalNetworkSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func toggleADBAutoStart(_ sender: NSMenuItem) {
+        do {
+            var settings = try SurgeStorage.standard.settings()
+            settings.autoStartUSB = sender.state != .on
+            saveSurgeSettings(settings)
+        } catch { interfaceError = error.localizedDescription; updateNativeVisibleContent() }
+    }
+
+    @objc private func retryADBStart() {
+        do {
+            var settings = try SurgeStorage.standard.settings()
+            guard settings.autoStartUSB else { return }
+            settings.adbRetryToken = UUID().uuidString
+            saveSurgeSettings(settings)
+        } catch { interfaceError = error.localizedDescription; updateNativeVisibleContent() }
+    }
+
+    @objc private func chooseADB() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let foreground = NSWorkspace.shared.frontmostApplication
+            if #available(macOS 14.0, *) { NSApp.activate() }
+            else { NSApp.activate(ignoringOtherApps: true) }
+            defer {
+                if foreground?.processIdentifier != getpid() { _ = foreground?.activate(options: [.activateIgnoringOtherApps]) }
+            }
+            do {
+                var settings = try SurgeStorage.standard.settings()
+                let panel = NSOpenPanel()
+                panel.title = localized("adb.choose", fallback: "Choose ADB…")
+                panel.canChooseDirectories = false
+                panel.allowsMultipleSelection = false
+                if let executable = try? ADBClient.executable(configuredPath: settings.adbPath) {
+                    panel.directoryURL = executable.deletingLastPathComponent()
+                }
+                guard panel.runModal() == .OK, let url = panel.url else { return }
+                _ = try ADBClient.executable(configuredPath: url.path)
+                settings.adbPath = url.path
+                self.saveSurgeSettings(settings)
+            } catch { self.interfaceError = error.localizedDescription; self.updateNativeVisibleContent() }
+        }
+    }
+
+    @objc private func chooseSurgeModule() { selectSurgeFile(module: true) }
+    @objc private func toggleSurgePolicy(_ sender: NSMenuItem) {
+        do {
+            var settings = try SurgeStorage.standard.settings()
+            settings.switchIntelligence = sender.state != .on
+            saveSurgeSettings(settings)
+        } catch { interfaceError = error.localizedDescription; updateNativeVisibleContent() }
+    }
+    @objc private func chooseSurgeProfile() { selectSurgeFile(module: false) }
+    @objc private func automaticSurgeProfile() {
+        do {
+            var settings = try SurgeStorage.standard.settings()
+            settings.profilePath = ""
+            saveSurgeSettings(settings)
+        } catch { interfaceError = error.localizedDescription; updateNativeVisibleContent() }
+    }
+    @objc private func retrySurge() {
+        do { saveSurgeSettings(try SurgeStorage.standard.settings()) }
+        catch { interfaceError = error.localizedDescription; updateNativeVisibleContent() }
+    }
+
+    private func selectSurgeFile(module: Bool, enableAfterSelection: Bool = false) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let foreground = NSWorkspace.shared.frontmostApplication
+            if #available(macOS 14.0, *) { NSApp.activate() }
+            else { NSApp.activate(ignoringOtherApps: true) }
+            defer {
+                if foreground?.processIdentifier != getpid() { _ = foreground?.activate(options: [.activateIgnoringOtherApps]) }
+            }
+            do {
+                var settings = try SurgeStorage.standard.settings()
+                let panel = NSOpenPanel()
+                panel.canChooseDirectories = false
+                panel.allowsMultipleSelection = false
+                panel.allowedFileTypes = module ? ["sgmodule"] : ["conf"]
+                panel.title = module
+                    ? localized("surge.chooseModule", fallback: "Choose SIM DNS Module…")
+                    : localized("surge.chooseProfile", fallback: "Choose Active Profile…")
+                let initial = module ? settings.modulePath : settings.profilePath
+                let suggested = initial.isEmpty ? SurgeAgentManager.defaultModulePath : initial
+                if !suggested.isEmpty { panel.directoryURL = URL(fileURLWithPath: suggested).deletingLastPathComponent() }
+                guard panel.runModal() == .OK, let url = panel.url else { return }
+                if module { settings.modulePath = url.path }
+                else { settings.profilePath = url.path }
+                if enableAfterSelection { settings.enabled = true }
+                self.saveSurgeSettings(settings)
+            } catch { self.interfaceError = error.localizedDescription; self.updateNativeVisibleContent() }
+        }
     }
 
     private func updateNativeDetailsContent() {
@@ -926,6 +1261,8 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
             refresh()
         } else {
             updateNativeDetailsContent()
+            updateNativeSurgeContent()
+            updateNativeADBContent()
         }
     }
 
@@ -940,10 +1277,30 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
         pendingConnectionState = requestedState
         pendingConnectionStartedAt = Date()
         updateStatusItem()
+        let storage = SurgeStorage.standard
+        var previousADBPause: Int32?
+        var pauseRevision: String?
+        var pauseError: String?
+        do {
+            var settings = try storage.settings()
+            previousADBPause = settings.adbPausedProcessID
+            let requestedPause = requestedState ? nil : snapshot.runtime.flatMap { Int32(exactly: $0.processID) }
+            if (settings.autoStartUSB || previousADBPause != nil) && settings.adbPausedProcessID != requestedPause {
+                settings.adbPausedProcessID = requestedPause
+                settings.changed()
+                try storage.save(settings, to: storage.settingsURL)
+                pauseRevision = settings.revision
+            }
+        } catch { pauseError = error.localizedDescription }
         do {
             try ControlClient.send(requestedState ? "connect\n" : "disconnect\n")
-            interfaceError = nil
+            interfaceError = pauseError
         } catch {
+            if let revision = pauseRevision, var current = try? storage.settings(), current.revision == revision {
+                current.adbPausedProcessID = previousADBPause
+                current.changed()
+                try? storage.save(current, to: storage.settingsURL)
+            }
             interfaceError = error.localizedDescription
             pendingConnectionState = nil
             pendingConnectionStartedAt = nil
@@ -1112,7 +1469,7 @@ private final class StatusAppDelegate: NSObject, NSApplicationDelegate, NSMenuDe
 
 private func writeStandardError(_ message: String) {
     if let data = (message + "\n").data(using: .utf8) {
-        FileHandle.standardError.write(data)
+        try? FileHandle.standardError.write(contentsOf: data)
     }
 }
 
@@ -1124,6 +1481,7 @@ private func handleCommandLine() -> Bool {
     do {
         switch command {
         case "install":
+            try SurgeAgentManager.restoreIfNeeded(restart: true)
             try LaunchAgentManager.installAndStart()
             print("HoRNDIS menu bar status installed and started.")
         case "start", "open":
@@ -1139,6 +1497,7 @@ private func handleCommandLine() -> Bool {
             print("HoRNDIS menu bar status: \(LaunchAgentManager.isRunning ? "running" : "stopped")")
             print("Launch at login: \(LaunchAgentManager.isInstalled ? "enabled" : "disabled")")
         case "uninstall":
+            try SurgeAgentManager.uninstall()
             try LaunchAgentManager.uninstall()
             print("HoRNDIS menu bar status stopped and removed.")
         case "--version", "version":
@@ -1169,6 +1528,7 @@ private func handleCommandLine() -> Bool {
 @main
 private enum HoRNDISStatusEntryPoint {
     static func main() {
+        AgentRuntime.configureSignals()
         if handleCommandLine() {
             return
         }
