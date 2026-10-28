@@ -2,7 +2,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 APPDIR ?= /Applications
 BUILD_DIR ?= build
-VERSION ?= 0.3.12
+VERSION ?= 0.3.13
 ARCH_FLAGS ?=
 STATUS_ARCHS ?= $(shell uname -m)
 
@@ -65,7 +65,7 @@ all: $(TARGET) $(STATUS_TARGET)
 $(TARGET): $(OBJECTS)
 	@mkdir -p $(@D)
 	$(CXX) $(OBJECTS) $(LDFLAGS) -o $@
-	$(CODESIGN) --force --sign "$(SIGNING_IDENTITY)" "$@"
+	$(CODESIGN) --force --identifier horndis --sign "$(SIGNING_IDENTITY)" "$@"
 
 $(BUILD_DIR)/%.o: %
 	@mkdir -p $(@D)
@@ -90,7 +90,7 @@ $(BUILD_DIR)/horndis-surge-agent-%: $(SURGE_SOURCES) StatusApp/SurgeAgentMain.sw
 $(SURGE_AGENT): $(SURGE_ARCH_TARGETS)
 	@mkdir -p "$(@D)"
 	xcrun lipo -create $^ -output "$@"
-	$(CODESIGN) --force --sign "$(SIGNING_IDENTITY)" "$@"
+	$(CODESIGN) --force --identifier horndis-surge-agent --sign "$(SIGNING_IDENTITY)" "$@"
 
 $(STATUS_ICON_GENERATOR): StatusApp/GenerateAppIcon.swift
 	@mkdir -p $(@D)
@@ -122,7 +122,7 @@ $(STATUS_APP_BINARY): $(STATUS_ARCH_TARGETS) $(SURGE_AGENT) $(STATUS_ICON) $(STA
 	install -m 0644 StatusApp/Info.plist "$(STATUS_APP)/Contents/Info.plist"
 	install -m 0644 "$(STATUS_ICON)" "$(STATUS_APP_ICON)"
 	xcrun lipo -create $(STATUS_ARCH_TARGETS) -output "$@"
-	$(CODESIGN) --force --deep --sign "$(SIGNING_IDENTITY)" "$(STATUS_APP)"
+	$(CODESIGN) --force --sign "$(SIGNING_IDENTITY)" "$(STATUS_APP)"
 
 $(STATUS_TARGET): $(STATUS_APP_BINARY)
 	ln -sfn "HoRNDISStatus.app/Contents/MacOS/horndis-status" "$@"
@@ -233,6 +233,12 @@ test-homebrew: $(BUILD_DIR)/homebrew-operation-tests $(TARGET)
 	/bin/zsh Packaging/horndis-uninstall --help
 
 test: test-homebrew
+
+.PHONY: test-release-signing
+test-release-signing:
+	/usr/bin/python3 Tests/ReleaseSigningTests.py
+
+test: test-release-signing
 
 $(SURGE_TEST): Tests/SurgeIntegrationTests.swift $(SURGE_SOURCES) $(SURGE_BRIDGING)
 	@mkdir -p "$(@D)"

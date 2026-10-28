@@ -151,6 +151,12 @@ make clean
 make ARCH_FLAGS="-arch arm64 -arch x86_64" STATUS_ARCHS="arm64 x86_64"
 ```
 
+制作安装包时还需传入 `SIGNING_IDENTITY`，并在各版本持续使用相同的 Apple 签名身份；
+可使用 `security find-identity -v -p codesigning` 显示的证书 SHA-1。
+`Scripts/build-package` 会拒绝临时签名、变化的辅助程序标识及混用签名团队，
+避免系统无法稳定识别本地网络权限。发布工作流读取仓库变量 `MACOS_SIGNING_IDENTITY`，
+对应证书和私钥必须已安装在运行器钥匙串中，私钥不会存入仓库。代码签名不等同于安装包公证。
+
 ## 兼容性与长期设计
 
 项目刻意分离四项职责：USB 发现、网络协议组帧、macOS 以太网后端和服务安装。RNDIS 组帧具有可移植的单元测试；USB 访问隔离在 `USBTransport.mm`，feth/BPF 后端隔离在 `VirtualEthernet.cpp`。

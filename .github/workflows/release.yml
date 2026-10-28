@@ -11,19 +11,26 @@ permissions:
 jobs:
   release:
     runs-on: xcode-27
+    env:
+      SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
     steps:
       - uses: actions/checkout@v7
+      - name: Require the configured Apple signing identity
+        run: |
+          if [[ -z "$SIGNING_IDENTITY" || "$SIGNING_IDENTITY" == "-" ]]; then
+            echo "Set MACOS_SIGNING_IDENTITY to the Apple-issued identity installed on this runner."
+            exit 1
+          fi
       - name: Build and test universal binary
         run: |
           make test
           make clean
-          make ARCH_FLAGS="-arch arm64 -arch x86_64" STATUS_ARCHS="arm64 x86_64" VERSION="${GITHUB_REF_NAME#v}"
+          make ARCH_FLAGS="-arch arm64 -arch x86_64" STATUS_ARCHS="arm64 x86_64" VERSION="${GITHUB_REF_NAME#v}" SIGNING_IDENTITY="$SIGNING_IDENTITY"
           lipo -archs build/horndis | grep -q arm64
           lipo -archs build/horndis | grep -q x86_64
           lipo -archs build/horndis-status | grep -q arm64
           lipo -archs build/horndis-status | grep -q x86_64
-          codesign --force --sign - build/horndis
-          codesign --force --deep --sign - build/HoRNDISStatus.app
+          python3 Scripts/verify-release-signing.py build
           file build/horndis
           file build/horndis-status
       - name: Package

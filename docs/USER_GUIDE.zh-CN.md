@@ -98,8 +98,11 @@ DNS 发送验证请求；请在系统提示中允许 **HoRNDIS 状态栏** 访�
 
 后台的启动、状态变化、DNS 探测错误和状态文件写入失败记录在
 `~/Library/Application Support/HoRNDIS/Surge/agent.log`，最大 1 MiB，并保留一份轮转日志。
-本地开发可用 `SIGNING_IDENTITY` 指定现有 Apple 签名身份，使系统稳定记录 App 身份。
-默认的临时签名在重新构建后可能需要重新授权；重复 App 副本也可能影响权限显示。
+安装包要求使用 Apple 证书和固定的辅助程序标识签名；本地开发可通过 `SIGNING_IDENTITY`
+指定相同身份。临时签名构建（包括 v0.3.12 发布包）在替换后可能无法匹配权限，
+需升级到证书签名版本，并在系统提示时重新允许 HoRNDIS 状态栏访问本地网络。
+重复 App 副本也可能影响权限显示。详见
+[Apple 本地网络隐私说明](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy)。
 
 ## Surge 联动（可选）
 

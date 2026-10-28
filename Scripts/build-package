@@ -21,8 +21,9 @@ if [[ ! -x "${network_tool}" || ! -x "${status_app}/Contents/MacOS/horndis-statu
     exit 1
 fi
 
-/usr/bin/codesign --verify --strict --verbose=2 "${network_tool}"
-/usr/bin/codesign --verify --deep --strict --verbose=2 "${status_app}"
+# Local-network privacy needs a persistent Apple-issued signing identity. An
+# ad-hoc build can pass ordinary codesign validation but lose its permissions.
+/usr/bin/python3 "${repository_root}/Scripts/verify-release-signing.py" "${build_directory}"
 
 staging_directory=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/horndis-package.XXXXXX")
 trap '/bin/rm -rf -- "${staging_directory}"' EXIT

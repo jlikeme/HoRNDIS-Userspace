@@ -108,10 +108,13 @@ performs the permission-triggering operation when the phone network is available
 
 Lifecycle, transition, DNS and publication errors are logged privately to
 `~/Library/Application Support/HoRNDIS/Surge/agent.log`, bounded to 1 MiB plus one
-rotated file. For local development, `SIGNING_IDENTITY` can select an existing
-Apple-issued code-signing identity to stabilize privacy attribution. Ad hoc builds
-can require permission again after a rebuild; duplicate app copies can also affect
-the system's permission UI.
+rotated file. Installable packages require an Apple-issued code-signing identity
+and stable helper identifiers. Local source builds can select that identity with
+`SIGNING_IDENTITY`. Ad-hoc builds, including the v0.3.12 distribution, may lose
+permission attribution after replacement; upgrade to the signed build and allow
+HoRNDIS Status again if requested. Duplicate app copies can also affect the
+system's permission UI. See Apple's
+[local network privacy guidance](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy).
 
 ## Optional Surge integration
 

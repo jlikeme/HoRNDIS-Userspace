@@ -150,12 +150,21 @@ make test
 sudo ./build/horndis run
 ```
 
-To build a universal release binary with a recent Xcode:
+To build universal binaries with a recent Xcode:
 
 ```sh
 make clean
 make ARCH_FLAGS="-arch arm64 -arch x86_64" STATUS_ARCHS="arm64 x86_64"
 ```
+
+For installable packages, also pass `SIGNING_IDENTITY` with the same Apple-issued
+identity on every release, for example the SHA-1 shown by
+`security find-identity -v -p codesigning`. `Scripts/build-package` rejects ad-hoc
+signatures, changing helper identifiers and mixed signing teams because macOS
+uses that identity to track local-network permission. The release workflow reads
+the `MACOS_SIGNING_IDENTITY` repository variable; its certificate and private key
+must already be installed in the runner's keychain. Private keys are not stored
+in this repository. This code signature does not notarize the installer.
 
 ## Compatibility and long-term design
 

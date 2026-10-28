@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.13 - 2026-10-28
+
+- Require Apple-issued signatures with stable helper identifiers when packaging
+  releases, and remove the release workflow's forced ad-hoc re-signing. This
+  prevents local-network permission identity changes such as the v0.3.12
+  distribution regression. Existing permissions may need reauthorization once.
+
 ## 0.3.12 - 2026-10-28
 
 - Fix first-install name and disabled DHCP defaults: reject empty service IDs,
