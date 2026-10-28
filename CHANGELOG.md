@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.3.12 - 2026-10-28
+
+- Fix first-install name and disabled DHCP defaults: reject empty service IDs,
+  initialize the new service through the native name/protocol APIs, and repair
+  affected owned records/checkpoints without changing their UUID or position.
+
+- Append newly registered network services to the end by default; recovery
+  continues to honor the saved relative position of an existing service.
+
+- Persist owned network UUID/configuration and per-location UUID ordering outside
+  macOS migration data. Reuse or restore the original registration after reboot
+  and system upgrade; necessary replacements use the old live slot or surviving
+  neighbors, preserving all other services' relative order. Track manual changes
+  and clear recovery state on complete uninstall.
 
 ## 0.3.11 - 2026-10-27
 

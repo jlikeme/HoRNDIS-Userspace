@@ -214,7 +214,12 @@ bool VirtualEthernet::open(const std::string& hostInterface,
     bpfBufferSize_ = actualBufferSize;
     std::string persistentError;
     std::string bridge;
-    if (ensureNetworkService(bridge, persistentError)) {
+    bool registered = false;
+    for (int attempt = 0; attempt < 10 && !registered; ++attempt) {
+        registered = ensureNetworkService(bridge, persistentError, hostInterface_);
+        if (!registered) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (registered) {
         // configd materializes the registered bridge asynchronously.
         for (int retry = 0; retry < 40 && !if_nametoindex(bridge.c_str()); ++retry) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));

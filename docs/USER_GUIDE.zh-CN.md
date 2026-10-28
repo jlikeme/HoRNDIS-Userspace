@@ -181,6 +181,16 @@ sudo ipconfig set feth99 DHCP
 
 ## 升级
 
+修复版将 UUID、配置和各网络位置的 UUID 序列保存在 root 私有文件
+`/Library/Application Support/HoRNDIS/network-service.plist`，以首次运行时的当前设置为基线，
+每秒检查已提交的手动调整，停止前再保存一次。它独立于系统升级可能清除的桥登记。
+
+首次新建的网络服务名称为 HoRNDIS USB，IPv4 默认启用 DHCP、IPv6 默认自动配置，位置放在末尾。
+启动优先复用或恢复原 UUID；必须重建时优先替换当前仍存在的旧槽位，否则寻找最近存活的
+原前驱，其次原后继。邻居顺序已交换时跟随前驱，不交换其他服务；没有锚点时放到末尾并
+记录原因。保存完整旧序列只用于找锚点，不会整表覆盖当前排序。普通重启尊重最新的手动
+排序和网络位置成员变化。完整卸载会清除恢复记录，避免重新安装时复活已删除的服务。
+
 ```sh
 brew update
 brew upgrade --cask jlikeme/tap/horndis

@@ -12,6 +12,7 @@ namespace horndis {
 
 class VirtualEthernet {
 public:
+    const std::string& memberInterface() const { return memberInterface_; }
     VirtualEthernet();
     ~VirtualEthernet();
     VirtualEthernet(const VirtualEthernet&) = delete;

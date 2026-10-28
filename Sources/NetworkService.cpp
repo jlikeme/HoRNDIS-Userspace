@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "NetworkService.hpp"
+#include "NetworkServiceState.hpp"
+#include <chrono>
+#include <iostream>
+#include <ctime>
 #include <SystemConfiguration/SystemConfiguration.h>
 #include <dlfcn.h>
 #include <net/if.h>
@@ -67,121 +71,256 @@ bool safeMemberApply(SCPreferencesRef prefs) {
     if_freenameindex(runtime);
     return safe;
 }
-bool configure(bool removing, std::string& name, std::string& error) {
+void identityLog(const std::string& message) {
+    std::time_t now = std::time(nullptr); std::tm utc{}; char stamp[32]{};
+    gmtime_r(&now, &utc); std::strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:%M:%SZ", &utc);
+    std::cerr << "horndis: " << stamp << " network identity " << message << '\n';
+}
+bool configure(bool removing, std::string& name, std::string& error, const std::string& expectedMember = "") {
+    using namespace networkstate;
     error.clear();
     BridgeAPI api;
-    if (geteuid() != 0 || !api) {
-        error = "network service configuration requires root and the macOS bridge API";
-        return false;
-    }
-    auto prefs = SCPreferencesCreate(nullptr, CFSTR("HoRNDIS Userspace"), nullptr);
-    if (!prefs) { error = "cannot open system network preferences"; return false; }
-    if (!SCPreferencesLock(prefs, true)) {
-        CFRelease(prefs); error = "cannot lock system network preferences"; return false;
-    }
+    if (geteuid() != 0 || !api) { error = "network service configuration requires root and the macOS bridge API"; return false; }
+    NetworkServiceJournal journal;
+    CFHandle<SCPreferencesRef> prefs(SCPreferencesCreate(nullptr, CFSTR("HoRNDIS Userspace"), nullptr));
+    if (!prefs || !SCPreferencesLock(prefs.get(), true)) { error = "cannot lock system network preferences"; return false; }
+    CFHandle<CFDictionaryRef> previous(journal.copy(error));
+    // Full uninstall can still clean a valid on-disk owned registration if its
+    // checkpoint is corrupt; the secure clear step never follows links.
+    if (!error.empty() && !removing) { SCPreferencesUnlock(prefs.get()); return false; }
+    error.clear();
+    CFHandle<CFDictionaryRef> beforeSets(copySets(prefs.get()));
     SCNetworkInterfaceRef bridge = nullptr;
     SCNetworkServiceRef service = nullptr;
-    SCNetworkSetRef set = nullptr;
-    bool ok = false;
-    bool changed = false;
-    // All changes before commit are confined to this locked preferences session.
-    auto bridges = api.copyAll(prefs);
-    std::set<std::string> configuredNames;
-    if (bridges) {
-        for (CFIndex i = 0; i < CFArrayGetCount(bridges); ++i) {
-            auto candidate = static_cast<SCNetworkInterfaceRef>(CFArrayGetValueAtIndex(bridges, i));
+    bool ok = false, changed = false, recovering = false, committed = false;
+    std::string id, action = "reused", positionReport;
+    CFDictionaryRef history = preferredHistory(prefs.get(), previous.get());
+    CFDictionaryRef rawBridge = nullptr;
+    auto rawBridges = dictionary(pathValue(prefs.get(), "/VirtualNetworkInterfaces/Bridge"));
+    std::vector<const void*> bridgeKeys(rawBridges ? CFDictionaryGetCount(rawBridges) : 0);
+    if (rawBridges) CFDictionaryGetKeysAndValues(rawBridges, bridgeKeys.data(), nullptr);
+    for (auto key : bridgeKeys) {
+        auto candidate = dictionary(CFDictionaryGetValue(rawBridges, key));
+        auto options = dictionary(field(candidate, CFSTR("Options")));
+        if (!owned(options)) continue;
+        if (rawBridge) { error = "multiple owned network bridges; refusing ambiguous recovery"; break; }
+        name = text(key); id = text(field(options, CFSTR("HoRNDISServiceID"))); rawBridge = candidate;
+    }
+    // Prefer an existing valid owned registration over an interrupted write-ahead
+    // checkpoint. This also preserves the user's latest changes before shutdown.
+    CFHandle<CFDictionaryRef> actual;
+    auto materialize = [&]() {
+        CFHandle<CFDictionaryRef> phase(capture(prefs.get(), name, id, true, error, expectedMember));
+        if (!phase) return false;
+        CFHandle<CFMutableDictionaryRef> pending(CFDictionaryCreateMutableCopy(nullptr, 0, phase.get()));
+        auto historicalLocations = dictionary(field(history, CFSTR("Locations")));
+        CFHandle<CFMutableDictionaryRef> locations(historicalLocations ? CFDictionaryCreateMutableCopy(nullptr, 0, historicalLocations)
+            : CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+        CFDictionaryApplyFunction(dictionary(field(phase.get(), CFSTR("Locations"))), [](const void* key, const void* value, void* context) {
+            CFDictionarySetValue(static_cast<CFMutableDictionaryRef>(context), key, value);
+        }, locations.get());
+        CFDictionarySetValue(pending.get(), CFSTR("Locations"), locations.get());
+        if (!journal.save(pending.get(), error)) return false;
+        if (changed && !SCPreferencesCommitChanges(prefs.get())) {
+            std::string ignored; if (previous) journal.save(previous.get(), ignored); else journal.clear(ignored);
+            return false;
+        }
+        committed = true;
+        if (!SCPreferencesApplyChanges(prefs.get())) return false;
+        changed = false; recovering = true; action = "restored";
+        return true;
+    };
+    do {
+        if (!error.empty()) break;
+        if (rawBridge) {
+            if (!isBridgeName(name) || !validServiceID(id)) { error = "owned bridge has no valid service identity"; break; }
+            if (!emptyBridge(name)) { error = "owned bridge has existing members; leaving it unchanged"; break; }
+            if (!removing) {
+                CFHandle<CFDictionaryRef> repaired(repairNestedServiceTable(serviceConfiguration(prefs.get(), id), id, name));
+                if (repaired) {
+                    if (!setPath(prefs.get(), "/NetworkServices/" + id, repaired.get())) { error = "cannot repair new-service defaults"; break; }
+                    changed = true; action = "repaired name and DHCP";
+                }
+            }
+            if (history && (text(field(history, CFSTR("ServiceID"))) != id || text(field(history, CFSTR("BridgeName"))) != name)) {
+                actual = CFHandle<CFDictionaryRef>(capture(prefs.get(), name, id, false, error, expectedMember));
+                if (!actual) break;
+                history = actual.get();
+            }
+        } else if (history) {
+            name = text(field(history, CFSTR("BridgeName"))); id = text(field(history, CFSTR("ServiceID")));
+        }
+        if (!removing && history) {
+            if (!restoreMetadata(prefs.get(), history, if_nametoindex(name.c_str()) != 0, changed, error)) break;
+            recovering = changed || field(history, CFSTR("NeedsApply")) == kCFBooleanTrue;
+            if (recovering) action = "restored";
+            rawBridge = dictionary(pathValue(prefs.get(), "/VirtualNetworkInterfaces/Bridge/" + name));
+        }
+        if (!removing && rawBridge) {
+            auto members = array(field(rawBridge, CFSTR("Interfaces")));
+            if (!members) { error = "invalid owned bridge membership"; break; }
+            if (CFArrayGetCount(members) != 0) {
+                const auto member = CFArrayGetCount(members) == 1 ? text(CFArrayGetValueAtIndex(members, 0)) : "";
+                const bool stale = !member.empty() && (member == expectedMember ||
+                    (history && member == text(field(history, CFSTR("LastMember"))) && if_nametoindex(member.c_str()) == 0));
+                if (!stale || !emptyBridge(name)) { error = "owned bridge has foreign configured members; leaving it unchanged"; break; }
+                CFHandle<CFMutableDictionaryRef> updated(CFDictionaryCreateMutableCopy(nullptr, 0, rawBridge));
+                CFHandle<CFArrayRef> empty(copyStrings({})); CFDictionarySetValue(updated.get(), CFSTR("Interfaces"), empty.get());
+                if (!setPath(prefs.get(), "/VirtualNetworkInterfaces/Bridge/" + name, updated.get())) { error = "cannot detach stale owned member"; break; }
+                changed = true;
+            }
+        }
+        std::set<std::string> configuredNames;
+        CFHandle<CFArrayRef> bridges(api.copyAll(prefs.get()));
+        if (bridges) for (CFIndex i = 0; i < CFArrayGetCount(bridges.get()); ++i) {
+            auto candidate = static_cast<SCNetworkInterfaceRef>(CFArrayGetValueAtIndex(bridges.get(), i));
             configuredNames.insert(stringValue(SCNetworkInterfaceGetBSDName(candidate)));
             if (owned(api.options(candidate))) {
-                if (bridge) { error = "multiple owned network bridges; refusing ambiguous cleanup"; break; }
+                if (bridge) { error = "multiple owned network bridges; refusing ambiguous recovery"; break; }
                 bridge = candidate; CFRetain(bridge);
             }
         }
-        CFRelease(bridges);
-    }
-    // configd reconciles ALL bridges numbered below 100 when preferences are
-    // applied. Do not trigger that reconciliation if another program has a
-    // runtime-only bridge there: configd could otherwise destroy that bridge.
-    auto runtime = (removing && !bridge) ? nullptr : if_nameindex();
-    if (!runtime && !(removing && !bridge)) error = "cannot enumerate runtime network interfaces";
-    else if (runtime) {
-        for (auto entry = runtime; entry->if_index; ++entry) {
-            const std::string runtimeName = entry->if_name;
-            if (isBridgeName(runtimeName) && runtimeName.size() <= 8 &&
-                !configuredNames.contains(runtimeName)) {
-                error = "unmanaged runtime bridge exists; refusing global bridge reconciliation";
-            }
-        }
-        if_freenameindex(runtime);
-    }
-    do {
         if (!error.empty()) break;
-        if (bridge) {
-            name = stringValue(SCNetworkInterfaceGetBSDName(bridge));
-            if (!emptyBridge(name)) { error = "owned bridge has existing members; leaving it unchanged"; break; }
-            auto id = static_cast<CFStringRef>(CFDictionaryGetValue(api.options(bridge), CFSTR("HoRNDISServiceID")));
-            if (!id || stringValue(id).empty()) { error = "owned bridge has no service identity"; break; }
-            service = SCNetworkServiceCopy(prefs, id);
-            if (service) {
-                auto interface = SCNetworkServiceGetInterface(service);
-                if (!interface || stringValue(SCNetworkInterfaceGetBSDName(interface)) != name) {
-                    error = "network service identity changed; leaving it unchanged"; break;
-                }
+        // A validated raw owned registration is sufficient to protect our own
+        // not-yet-materialized interface; unrelated runtime bridges still block.
+        if (rawBridge && isBridgeName(name)) configuredNames.insert(name);
+        if (!removing || bridge) {
+            auto runtime = if_nameindex();
+            if (!runtime) { error = "cannot enumerate runtime network interfaces"; break; }
+            for (auto entry = runtime; entry->if_index; ++entry) {
+                const std::string other = entry->if_name;
+                if (isBridgeName(other) && other.size() <= 8 && !configuredNames.contains(other))
+                    error = "unmanaged runtime bridge exists; refusing global bridge reconciliation";
             }
-        } else if (removing) { ok = true; break; }
+            if_freenameindex(runtime);
+            if (!error.empty()) break;
+        }
         if (removing) {
-            if ((service && !SCNetworkServiceRemove(service)) || !api.remove(bridge)) break;
-            changed = true;
-        } else {
-            if (!bridge) {
-                // SPI checks preferences, not runtime occupancy. Reserve skipped
-                // candidates only in memory, never commit or destroy those names.
-                std::vector<SCNetworkInterfaceRef> skipped;
-                for (int attempt = 0; attempt < 100; ++attempt) {
-                    auto candidate = api.create(prefs);
-                    if (!candidate) break;
-                    auto candidateName = stringValue(SCNetworkInterfaceGetBSDName(candidate));
-                    if (isBridgeName(candidateName) && !if_nametoindex(candidateName.c_str())) {
-                        bridge = candidate; name = candidateName; break;
+            if (bridge && !emptyBridge(name)) { error = "owned bridge has existing members; leaving it unchanged"; break; }
+            if (!id.empty() && !removeServiceMetadata(prefs.get(), name, id, changed, error)) break;
+            if (bridge) { if (!api.remove(bridge)) break; changed = true; }
+            if (changed && (!SCPreferencesCommitChanges(prefs.get()) || !SCPreferencesApplyChanges(prefs.get()))) break;
+            if (!journal.clear(error)) break;
+            identityLog("removed uuid=" + (id.empty() ? "none" : id)); ok = true; break;
+        }
+        if (!bridge && !name.empty()) {
+            // A restored registration may need configd to materialize its
+            // interface before SPI can construct the corresponding object.
+            if (!materialize()) break;
+            for (int retry = 0; retry < 40 && !bridge; ++retry) {
+                CFHandle<CFArrayRef> ready(api.copyAll(prefs.get()));
+                if (ready) for (CFIndex i = 0; i < CFArrayGetCount(ready.get()); ++i) {
+                    auto candidate = static_cast<SCNetworkInterfaceRef>(CFArrayGetValueAtIndex(ready.get(), i));
+                    if (stringValue(SCNetworkInterfaceGetBSDName(candidate)) == name && owned(api.options(candidate))) {
+                        bridge = candidate; CFRetain(bridge); break;
                     }
-                    skipped.push_back(candidate);
                 }
-                for (auto candidate : skipped) { api.remove(candidate); CFRelease(candidate); }
-                if (!bridge) break;
-                changed = true;
+                if (!bridge) usleep(50000);
             }
-            if (!service) {
-                service = SCNetworkServiceCreate(prefs, bridge);
-                if (!service || !SCNetworkServiceEstablishDefaultConfiguration(service) ||
-                    !SCNetworkServiceSetName(service, CFSTR("HoRNDIS USB"))) break;
-                const void* keys[] = {CFSTR("HoRNDISOwner"), CFSTR("HoRNDISServiceID")};
-                const void* values[] = {CFSTR("io.github.noahhhi.horndis.network-v1"), SCNetworkServiceGetServiceID(service)};
-                auto options = CFDictionaryCreate(nullptr, keys, values, 2,
-                    &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-                bool marked = api.setOptions(bridge, options);
-                CFRelease(options);
-                if (!marked) break;
-                changed = true;
+            if (!bridge) { error = "owned bridge recovery is waiting for SystemConfiguration; retained saved UUID"; break; }
+        }
+        if (!bridge) {
+            // Refuse to duplicate an unmarked legacy service after migration.
+            auto allServices = dictionary(SCPreferencesGetValue(prefs.get(), CFSTR("NetworkServices")));
+            std::vector<const void*> values(allServices ? CFDictionaryGetCount(allServices) : 0);
+            if (allServices) CFDictionaryGetKeysAndValues(allServices, nullptr, values.data());
+            for (auto value : values) if (text(field(dictionary(value), CFSTR("UserDefinedName"))) == "HoRNDIS USB") error = "unmarked HoRNDIS service exists; recovery identity is required";
+            if (!error.empty()) break;
+            std::vector<SCNetworkInterfaceRef> skipped;
+            for (int attempt = 0; attempt < 100; ++attempt) {
+                auto candidate = api.create(prefs.get()); if (!candidate) break;
+                auto candidateName = stringValue(SCNetworkInterfaceGetBSDName(candidate));
+                if (isBridgeName(candidateName) && !if_nametoindex(candidateName.c_str())) { bridge = candidate; name = candidateName; break; }
+                skipped.push_back(candidate);
             }
-            set = SCNetworkSetCopyCurrent(prefs);
-            if (!set) break;
-            auto services = SCNetworkSetCopyServices(set);
-            bool included = services && CFArrayContainsValue(services, CFRangeMake(0, CFArrayGetCount(services)), service);
-            if (services) CFRelease(services);
-            if (!included) {
-                if (!SCNetworkSetAddService(set, service)) break;
-                changed = true;
+            for (auto candidate : skipped) { api.remove(candidate); CFRelease(candidate); }
+            if (!bridge) break;
+            changed = true; action = "created";
+        }
+        if (!id.empty()) {
+            CFHandle<CFStringRef> identifier(CFStringCreateWithCString(nullptr, id.c_str(), kCFStringEncodingUTF8));
+            service = SCNetworkServiceCopy(prefs.get(), identifier.get());
+            if (!service && history && (changed || field(history, CFSTR("NeedsApply")) == kCFBooleanTrue || if_nametoindex(name.c_str()) == 0)) {
+                // A boot-time missing interface is not proof that its UUID is
+                // unusable. Materialize the saved registration before considering
+                // a replacement, with a durable pending checkpoint for crashes.
+                if (!materialize()) break;
+                for (int retry = 0; retry < 40 && !service; ++retry) {
+                    service = SCNetworkServiceCopy(prefs.get(), identifier.get());
+                    if (!service) usleep(50000);
+                }
+                if (!service && if_nametoindex(name.c_str()) == 0) {
+                    error = "saved bridge is not ready; retained original service UUID"; break;
+                }
             }
         }
-        if (changed && !SCPreferencesCommitChanges(prefs)) break;
-        // Apply on reuse too, including recovery from a previous apply failure.
-        if (!SCPreferencesApplyChanges(prefs)) break;
+        if (service && (!SCNetworkServiceGetInterface(service) || stringValue(SCNetworkInterfaceGetBSDName(SCNetworkServiceGetInterface(service))) != name)) { error = "network service identity changed; leaving it unchanged"; break; }
+        const auto oldID = id;
+        if (!service) {
+            CFHandle<SCNetworkServiceRef> fresh(SCNetworkServiceCreate(prefs.get(), bridge));
+            if (!fresh) break;
+            const bool needsDefaults = !serviceConfiguration(prefs.get(), id) && !dictionary(field(history, CFSTR("ServiceConfiguration")));
+            if (needsDefaults ? !initializeFreshService(fresh.get(), error) : !SCNetworkServiceEstablishDefaultConfiguration(fresh.get())) break;
+            const auto newID = text(SCNetworkServiceGetServiceID(fresh.get()));
+            CFHandle<CFDictionaryRef> configuration(configurationForCreatedService(prefs.get(), id, newID, history, error));
+            if (!configuration) break;
+            if (!id.empty()) {
+                if (!setPath(prefs.get(), "/NetworkServices/" + id, configuration.get())) break;
+                CFHandle<CFStringRef> old(CFStringCreateWithCString(nullptr, id.c_str(), kCFStringEncodingUTF8));
+                service = SCNetworkServiceCopy(prefs.get(), old.get());
+                if (service) {
+                    if (!SCNetworkServiceRemove(fresh.get())) break;
+                    action = "restored";
+                } else {
+                    // Only a confirmed, owned unusable identity is retired. Its
+                    // replacement is inserted into the old slot/anchor position.
+                    if (!removeServiceMetadata(prefs.get(), name, id, changed, error) ||
+                        !setPath(prefs.get(), "/NetworkServices/" + newID, configuration.get())) break;
+                    service = fresh.release();
+                    id = newID; action = "rebuilt";
+                }
+            } else {
+                if (!setPath(prefs.get(), "/NetworkServices/" + newID, configuration.get())) break;
+                service = fresh.release(); id = newID;
+            }
+            if (!service) break;
+            changed = true; recovering = !oldID.empty();
+        }
+        auto existingOptions = api.options(bridge);
+        if (!owned(existingOptions) || text(field(existingOptions, CFSTR("HoRNDISServiceID"))) != id) {
+            CFHandle<CFMutableDictionaryRef> options(existingOptions ? CFDictionaryCreateMutableCopy(nullptr, 0, existingOptions) : CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+            CFHandle<CFStringRef> owner(CFStringCreateWithCString(nullptr, kOwner, kCFStringEncodingUTF8));
+            CFHandle<CFStringRef> sid(CFStringCreateWithCString(nullptr, id.c_str(), kCFStringEncodingUTF8));
+            CFDictionarySetValue(options.get(), CFSTR("HoRNDISOwner"), owner.get()); CFDictionarySetValue(options.get(), CFSTR("HoRNDISServiceID"), sid.get());
+            if (!api.setOptions(bridge, options.get())) break; changed = true;
+        }
+        if (!placeInSets(prefs.get(), beforeSets.get(), history, oldID, service, recovering, changed, positionReport, error)) break;
+        const bool apply = changed || (history && field(history, CFSTR("NeedsApply")) == kCFBooleanTrue) || if_nametoindex(name.c_str()) == 0;
+        CFHandle<CFDictionaryRef> candidate(capture(prefs.get(), name, id, apply, error, expectedMember));
+        if (!candidate) break;
+        CFHandle<CFMutableDictionaryRef> pending(CFDictionaryCreateMutableCopy(nullptr, 0, candidate.get()));
+        if (apply && history && text(field(history, CFSTR("ServiceID"))) != id) {
+            CFHandle<CFMutableDictionaryRef> rollback(CFDictionaryCreateMutableCopy(nullptr, 0, history));
+            CFDictionaryRemoveValue(rollback.get(), CFSTR("Previous"));
+            CFDictionarySetValue(pending.get(), CFSTR("Previous"), rollback.get());
+        }
+        if (!journal.save(pending.get(), error)) break;
+        if (changed && !SCPreferencesCommitChanges(prefs.get())) {
+            std::string ignored; if (previous) journal.save(previous.get(), ignored); else journal.clear(ignored);
+            break;
+        }
+        committed = true;
+        if (apply && !SCPreferencesApplyChanges(prefs.get())) break;
+        CFHandle<CFDictionaryRef> complete(capture(prefs.get(), name, id, false, error, expectedMember));
+        if (!complete || !journal.save(complete.get(), error)) break;
+        identityLog(action + " uuid=" + id + " bridge=" + name + (oldID != id ? " previous=" + oldID : "") + positionReport);
         ok = true;
     } while (false);
     if (!ok && error.empty()) error = std::string("cannot configure HoRNDIS network service: ") + SCErrorString(SCError());
-    if (set) CFRelease(set);
+    if (!ok && committed) identityLog("recovery pending uuid=" + id + " " + error);
     if (service) CFRelease(service);
     if (bridge) CFRelease(bridge);
-    SCPreferencesUnlock(prefs); CFRelease(prefs);
+    SCPreferencesUnlock(prefs.get());
     return ok;
 }
 }
@@ -190,7 +329,41 @@ bool isBridgeName(const std::string& name) {
     for (size_t i = 6; i < name.size(); ++i) if (!std::isdigit(static_cast<unsigned char>(name[i]))) return false;
     return true;
 }
-bool ensureNetworkService(std::string& bridgeName, std::string& error) { return configure(false, bridgeName, error); }
+bool ensureNetworkService(std::string& bridgeName, std::string& error, const std::string& member) { return configure(false, bridgeName, error, member); }
+void checkpointNetworkService(const std::string& bridge, const std::string& member, bool force) {
+    using namespace networkstate;
+    if (geteuid() != 0 || !isBridgeName(bridge)) return;
+    static auto checked = std::chrono::steady_clock::time_point{};
+    static std::string lastError;
+    const auto now = std::chrono::steady_clock::now();
+    if (!force && now - checked < std::chrono::seconds(1)) return;
+    checked = now;
+    std::string error;
+    NetworkServiceJournal journal;
+    CFHandle<SCPreferencesRef> prefs(SCPreferencesCreate(nullptr, CFSTR("HoRNDIS network checkpoint"), nullptr));
+    if (!prefs || !SCPreferencesLock(prefs.get(), false)) return;
+    // The same preferences lock covers capture+save and full uninstall+clear.
+    // A shutting-down supervisor cannot recreate a checkpoint after uninstall.
+    CFHandle<CFDictionaryRef> saved(journal.copy(error));
+    if (error.empty() && saved && field(saved.get(), CFSTR("NeedsApply")) == kCFBooleanTrue) { SCPreferencesUnlock(prefs.get()); return; }
+    if (error.empty()) {
+        {
+            auto config = dictionary(pathValue(prefs.get(), "/VirtualNetworkInterfaces/Bridge/" + bridge));
+            auto options = dictionary(field(config, CFSTR("Options")));
+            const auto id = text(field(options, CFSTR("HoRNDISServiceID")));
+            auto members = array(field(config, CFSTR("Interfaces")));
+            const bool safeMembers = members && (CFArrayGetCount(members) == 0 ||
+                (CFArrayGetCount(members) == 1 && text(CFArrayGetValueAtIndex(members, 0)) == member));
+            if (owned(options) && safeMembers && (!saved || (text(field(saved.get(), CFSTR("ServiceID"))) == id && text(field(saved.get(), CFSTR("BridgeName"))) == bridge))) {
+                CFHandle<CFDictionaryRef> state(capture(prefs.get(), bridge, id, false, error, member));
+                if (state) (void)journal.save(state.get(), error);
+            } else error = "registration unavailable; retained last known UUID and position";
+        }
+    }
+    SCPreferencesUnlock(prefs.get());
+    if (!error.empty() && error != lastError) identityLog("checkpoint deferred: " + error);
+    lastError = error;
+}
 bool setNetworkServiceMember(const std::string& bridgeName, const std::string& member,
                              bool attached, std::string& error) {
     if (geteuid() != 0 || !isBridgeName(bridgeName) || !member.starts_with("feth") ||

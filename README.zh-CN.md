@@ -7,7 +7,7 @@
 
 HoRNDIS 的 Android USB 网络共享数据路径运行在用户态而非内核态，因此可在现代 macOS 上运行，无需关闭系统完整性保护（SIP）。
 
-此增强版由 [jlikeme/HoRNDIS-Userspace](https://github.com/jlikeme/HoRNDIS-Userspace) 维护，基于[上游项目](https://github.com/noahhhi/HoRNDIS-Userspace)，增加了可选的 Surge 联动、通过已授权 ADB 自动开启 USB 网络共享，以及重装时保留网络服务等功能。
+此增强版由 [jlikeme/HoRNDIS-Userspace](https://github.com/jlikeme/HoRNDIS-Userspace) 维护，基于[上游项目](https://github.com/noahhhi/HoRNDIS-Userspace)，增加了可选的 Surge 联动、通过已授权 ADB 自动开启 USB 网络共享，以及网络服务 UUID 和位置的持久保存与恢复等功能。
 
 [用户手册](docs/USER_GUIDE.zh-CN.md) · [反馈 Bug](docs/BUG_REPORTING.zh-CN.md) · [权限模型](docs/PRIVILEGE_MODEL.md) · [已知限制](docs/LIMITATIONS.md) · [菜单栏 UI 规范](docs/MENU_UI_GUIDELINES.md)
 
@@ -26,6 +26,9 @@ brew install --cask jlikeme/tap/horndis
 后续使用 `brew upgrade --cask jlikeme/tap/horndis` 升级，使用
 `brew reinstall --cask jlikeme/tap/horndis` 重装；本增强版会保留
 HoRNDIS USB 网络服务、网络配置和原有服务顺序。
+首次新建服务时名称为 **HoRNDIS USB**，IPv4 默认启用 DHCP，位置放在末尾。
+启动时优先复用已保存的 UUID；必须重建时恢复原相对位置，不调整其他服务的顺序。
+完整卸载会删除网络服务及其恢复记录。
 要求及卸载方式见 [tap 安装说明](https://github.com/jlikeme/homebrew-tap#horndis-userspace)。
 
 ### PKG 安装包

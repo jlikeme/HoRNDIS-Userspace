@@ -207,6 +207,21 @@ Then turn Android USB tethering off and on. Upgrade or reinstall HoRNDIS to obta
 
 ## Upgrade
 
+The repaired supervisor stores the owned UUID, configuration and per-location
+UUID sequences in the root-private
+`/Library/Application Support/HoRNDIS/network-service.plist`, independently of
+macOS migration data. Its first run adopts current committed settings; it checks
+manual changes each second and checkpoints again before stopping.
+
+New network services are named HoRNDIS USB, enable IPv4 DHCP and IPv6 Automatic,
+and are placed last by default. Startup reuses or restores the original UUID.
+If replacement is necessary, the
+current old slot wins, otherwise the nearest surviving predecessor, then successor,
+determines placement. Crossed anchors follow the predecessor; no anchors means
+append and log. The saved sequence locates anchors only, never overwrites the
+current whole ordering. Other services keep their relative order and configuration.
+Latest manual position/membership changes win. Full uninstall clears the record.
+
 ```sh
 brew update
 brew upgrade --cask jlikeme/tap/horndis

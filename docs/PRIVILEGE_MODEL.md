@@ -95,6 +95,13 @@ removal. The supervisor never attaches physical network interfaces. A second
 fixed, argument-free request clears DHCP and lowers the owned feth pair after
 disconnect/pause; channel closure also suspends the network after an agent crash.
 
+The supervisor checkpoints only its owned network identity/settings and location
+orders to a root-owned 0600 file outside SystemConfiguration's migration data.
+Symlinks, foreign owners, malformed identities and ambiguous bridge ownership
+are rejected. Capture/write and full removal/clear share the preferences lock;
+the existing supervisor thread checks committed changes without new IPC requests
+or threads. Recovery changes owned entries only; full uninstall clears the record.
+
 The package cleanup script accepts a replacement mode that only stops its fixed
 launchd jobs and waits for graceful exit. It never deletes the persistent network
 service in this mode. The cask passes a constant `--homebrew` argument; a read-only

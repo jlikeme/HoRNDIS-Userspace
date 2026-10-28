@@ -26,6 +26,8 @@ cask "horndis" do
 
     Upgrades and reinstalls preserve the HoRNDIS USB network service, its
     identifier, network settings and service order. A full uninstall removes it.
+    New services use DHCP and appear last. Startup restores the saved identity
+    and relative position; full uninstall also clears the recovery record.
 
     It also installs the `horndis` command and `man horndis`. The package
     requests administrator authorization to activate its fixed network service.

@@ -7,7 +7,7 @@
 
 HoRNDIS runs the Android USB tethering data path in user space rather than the kernel, so it works on modern macOS without disabling System Integrity Protection (SIP).
 
-This enhanced distribution is maintained at [jlikeme/HoRNDIS-Userspace](https://github.com/jlikeme/HoRNDIS-Userspace), based on [the upstream project](https://github.com/noahhhi/HoRNDIS-Userspace). It includes optional Surge integration, automatic USB tethering startup through authorized ADB, and network-service preservation during replacement.
+This enhanced distribution is maintained at [jlikeme/HoRNDIS-Userspace](https://github.com/jlikeme/HoRNDIS-Userspace), based on [the upstream project](https://github.com/noahhhi/HoRNDIS-Userspace). It includes optional Surge integration, automatic USB tethering startup through authorized ADB, and persistent network-service identity and position recovery.
 
 [User guide](docs/USER_GUIDE.md) · [Report a bug](docs/BUG_REPORTING.md) · [Privilege model](docs/PRIVILEGE_MODEL.md) · [Known limitations](docs/LIMITATIONS.md) · [Menu UI contract](docs/MENU_UI_GUIDELINES.md)
 
@@ -26,6 +26,10 @@ brew install --cask jlikeme/tap/horndis
 For later updates, use `brew upgrade --cask jlikeme/tap/horndis`.
 Reinstall with `brew reinstall --cask jlikeme/tap/horndis`; this enhanced version
 preserves the HoRNDIS USB service, its settings and network service order.
+New services are named **HoRNDIS USB**, enable IPv4 DHCP, and appear last by
+default. Startup reuses the saved service UUID; if rebuilding is necessary,
+recovery restores its relative position without reordering other services.
+Full uninstall removes the service and its recovery record.
 See the [tap documentation](https://github.com/jlikeme/homebrew-tap#horndis-userspace)
 for requirements and uninstall instructions.
 

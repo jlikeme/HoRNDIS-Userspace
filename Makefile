@@ -2,7 +2,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 APPDIR ?= /Applications
 BUILD_DIR ?= build
-VERSION ?= 0.3.11
+VERSION ?= 0.3.12
 ARCH_FLAGS ?=
 STATUS_ARCHS ?= $(shell uname -m)
 
@@ -19,7 +19,7 @@ SIGNING_IDENTITY ?= -
 SOURCES := Sources/main.mm Sources/RNDISProtocol.cpp Sources/USBTransport.mm \
 	Sources/VirtualEthernet.cpp Sources/ServiceManager.cpp Sources/RuntimeStatus.cpp \
 	Sources/ControlServer.cpp Sources/Diagnostics.mm Sources/SupervisorChannel.cpp \
-	Sources/InterfaceSelection.cpp Sources/NetworkService.cpp Sources/HomebrewOperation.cpp
+	Sources/InterfaceSelection.cpp Sources/NetworkService.cpp Sources/NetworkServiceState.cpp Sources/HomebrewOperation.cpp
 OBJECTS := $(SOURCES:%=$(BUILD_DIR)/%.o)
 TARGET := $(BUILD_DIR)/horndis
 STATUS_TARGET := $(BUILD_DIR)/horndis-status
@@ -204,11 +204,21 @@ test: $(TEST_TARGET) $(RUNTIME_STATUS_TEST) $(SUPERVISOR_CHANNEL_TEST) $(DHCP_RE
 	$(CODESIGN) --verify --strict --verbose=2 "$(TARGET)"
 	$(CODESIGN) --verify --deep --strict --verbose=2 "$(STATUS_APP)"
 
-$(BUILD_DIR)/network-service-tests: Tests/NetworkServiceTests.cpp Sources/NetworkService.cpp Sources/VirtualEthernet.cpp Sources/InterfaceSelection.cpp
+$(BUILD_DIR)/network-service-tests: Tests/NetworkServiceTests.cpp Sources/NetworkService.cpp Sources/NetworkServiceState.cpp Sources/VirtualEthernet.cpp Sources/InterfaceSelection.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
 
 test: test-network-service
+
+$(BUILD_DIR)/network-service-state-tests: Tests/NetworkServiceStateTests.cpp Sources/NetworkServiceState.cpp Sources/NetworkServiceState.hpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) Tests/NetworkServiceStateTests.cpp Sources/NetworkServiceState.cpp -framework Foundation -framework SystemConfiguration -o $@
+
+.PHONY: test-network-service-state
+test-network-service-state: $(BUILD_DIR)/network-service-state-tests
+	$(BUILD_DIR)/network-service-state-tests
+
+test: test-network-service-state
 
 $(BUILD_DIR)/homebrew-operation-tests: Tests/HomebrewOperationTests.cpp Sources/HomebrewOperation.cpp Sources/HomebrewOperation.hpp
 	@mkdir -p $(@D)

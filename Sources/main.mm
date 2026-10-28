@@ -6,6 +6,7 @@
 #include "VirtualEthernet.hpp"
 #include "ServiceManager.hpp"
 #include "HomebrewOperation.hpp"
+#include "NetworkService.hpp"
 #include "RuntimeStatus.hpp"
 #include "ControlServer.hpp"
 #include "DeviceAliases.hpp"
@@ -28,6 +29,7 @@
 #include <mach-o/dyld.h>
 #include <mutex>
 #include <optional>
+#include <poll.h>
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
@@ -820,6 +822,16 @@ pid_t spawnAgent(const std::string& executable,
 
 void superviseAgentDHCP(int descriptor, horndis::VirtualEthernet& ethernet) {
     while (gRunning.load()) {
+        // Check committed preferences on the existing supervisor thread. There
+        // are no extra privileged requests, threads or fork-time callback races.
+        horndis::checkpointNetworkService(ethernet.hostInterface(), ethernet.memberInterface());
+        pollfd channel{descriptor, POLLIN, 0};
+        const int ready = poll(&channel, 1, 1000);
+        if (ready < 0) {
+            if (errno == EINTR) continue;
+            logLine("cannot poll the supervisor channel"); break;
+        }
+        if (ready == 0) continue;
         horndis::SupervisorRequest request{};
         bool closed = false;
         std::string error;
@@ -854,6 +866,7 @@ void superviseAgentDHCP(int descriptor, horndis::VirtualEthernet& ethernet) {
             break;
         }
     }
+    horndis::checkpointNetworkService(ethernet.hostInterface(), ethernet.memberInterface(), true);
 }
 
 // Root-published snapshots stay mode 0600, so hand them to the console user;
@@ -918,6 +931,7 @@ int runBridge() {
 
     while (gRunning.load()) {
         const auto identity = currentConsoleUser();
+        horndis::checkpointNetworkService(hostInterface, ethernet.memberInterface());
         if (!identity.has_value()) {
             supervisorStatus.state = "waiting";
             supervisorStatus.detail = "Waiting for a macOS console user";

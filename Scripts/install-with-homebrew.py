@@ -12,15 +12,20 @@ import sys
 import time
 import tempfile
 import shutil
+import argparse
 
 root = Path(__file__).resolve().parent.parent
-build = root / 'build'
-plan = json.loads((build / 'homebrew-install-plan.json').read_text())
+arguments = argparse.ArgumentParser(description=__doc__)
+arguments.add_argument('--prepare', action='store_true')
+arguments.add_argument('--plan', type=Path, default=root/'build/homebrew-install-plan.json')
+options = arguments.parse_args()
+build = options.plan.resolve().parent
+plan = json.loads(options.plan.read_text())
 recipe = Path(plan['recipe'])
 original = (build / 'horndis-homebrew-original.rb').read_bytes()
 local = (build / 'horndis-homebrew-local.rb').read_bytes()
 package = Path(plan['package'])
-prepare = sys.argv[1:] == ['--prepare']
+prepare = options.prepare
 brew = plan.get('brew', shutil.which('brew') or '/opt/homebrew/bin/brew')
 cask_token = plan.get('cask', 'jlikeme/tap/horndis')
 env = dict(os.environ, HOMEBREW_NO_AUTO_UPDATE='1', HOMEBREW_NO_INSTALL_CLEANUP='1')
@@ -158,7 +163,7 @@ try:
             subprocess.run([registrar, '-f', str(installed)], check=True)
             previews = [source] + [Path(path) for path in plan.get('preview_app_paths', [])]
             for preview in previews:
-                assert preview.is_relative_to(build) and preview.name == 'HoRNDISStatus.app'
+                assert preview.is_relative_to(root/'build') and preview.name == 'HoRNDISStatus.app'
                 subprocess.run([registrar, '-u', str(preview)], check=False)
         restore_integration_preferences()
         installed_receipt = json.loads((Path(caskroom)/'.metadata/INSTALL_RECEIPT.json').read_text())
@@ -171,7 +176,17 @@ try:
         record['network_service_before'] = network_before
         record['network_service_after'] = network_after
         record['network_service_preserved'] = network_before == network_after
-        if network_before['service_ids'] and network_before != network_after:
+        if plan.get('repair_fresh_defaults'):
+            stable = ['service_ids', 'owned_bridge_options', 'orders']
+            record['network_service_preserved'] = all(network_before[key] == network_after[key] for key in stable)
+            preferences = plistlib.loads(Path('/Library/Preferences/SystemConfiguration/preferences.plist').read_bytes())
+            for sid in network_after['service_ids']:
+                config = preferences['NetworkServices'][sid]
+                assert config.get('UserDefinedName') == 'HoRNDIS USB', '服务名称未修复。'
+                assert config.get('IPv4', {}).get('ConfigMethod') == 'DHCP' and not config.get('IPv4', {}).get('__INACTIVE__'), 'DHCP 未启用。'
+                assert sid not in config, '服务配置中仍有错误嵌套记录。'
+            record['fresh_defaults_repaired'] = True
+        if network_before['service_ids'] and not record['network_service_preserved']:
             raise RuntimeError('安装后网络服务标识、配置或排序发生变化，请检查安装记录。')
         record['surge_files_unchanged'] = all(snapshot(path) == before[str(path)] for path in protected)
         print('Homebrew 安装完成，已核对新应用和 Surge 联动组件。', flush=True)

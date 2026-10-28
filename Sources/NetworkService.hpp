@@ -4,7 +4,8 @@
 
 namespace horndis {
 // Root-only configuration. The data agent never receives preferences or SPI objects.
-bool ensureNetworkService(std::string& bridgeName, std::string& error);
+bool ensureNetworkService(std::string& bridgeName, std::string& error, const std::string& member = "");
+void checkpointNetworkService(const std::string& bridge, const std::string& member, bool force = false);
 bool removeNetworkService(std::string& error);
 bool refreshNetworkService(const std::string& bridgeName, std::string& error);
 bool setNetworkServiceMember(const std::string& bridgeName, const std::string& member,
